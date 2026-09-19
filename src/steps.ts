@@ -13,7 +13,7 @@ import {
   type CandidateKind,
   type Snapshot,
 } from './page.js';
-import { pickElement, judge, decide, isTooLong, MAX_PICK_CANDIDATES } from './jev.js';
+import { pickElements, judge, decide, isTooLong, MAX_PICK_CANDIDATES } from './jev.js';
 
 export type Status = 'pass' | 'fail' | 'inconclusive' | 'error' | 'skipped';
 
@@ -55,8 +55,10 @@ export function label(step: Step): string {
       return `drag "${step.source}" to "${step.target}"`;
     case 'mouse':
       return `mouse to (${step.x}, ${step.y})`;
-    case 'expect':
-      return step.within ? `expect "${step.expectation}" within "${step.within}"` : `expect "${step.expectation}"`;
+    case 'expect': {
+      const claim = step.expectations.length > 1 ? step.expectations.join(' | ') : step.expectations[0];
+      return step.within ? `expect "${claim}" within "${step.within}"` : `expect "${claim}"`;
+    }
   }
 }
 
@@ -107,35 +109,66 @@ interface Resolved {
   detail: string;
   tokens: number;
   usedJev: boolean;
+  confidence?: number;
+}
+
+// Resolves several targets of the same kind in one pass: css= targets resolve directly, the rest
+// share ONE settle + ONE candidate scan + ONE pickElements() request (one request = one Jev call —
+// only the first Jev-resolved entry carries usedJev/tokens, matching pickElements()'s own contract).
+// Results come back in the same order as `targets`.
+async function resolveLocators(page: Page, kind: CandidateKind, targets: string[]): Promise<Resolved[]> {
+  const results: Resolved[] = new Array(targets.length);
+  const jevIndices: number[] = [];
+  const jevTargets: string[] = [];
+
+  targets.forEach((target, i) => {
+    if (target.startsWith('css=')) {
+      const selector = target.slice(4);
+      results[i] = { locator: page.locator(selector), detail: `→ css=${selector}`, tokens: 0, usedJev: false };
+    } else {
+      jevIndices.push(i);
+      jevTargets.push(target);
+    }
+  });
+
+  if (jevTargets.length > 0) {
+    // Let debounced autocompletes, modals etc. finish rendering before we look (networkidle fires too early:
+    // it sees the quiet gap *before* a debounced request starts).
+    await settle(page).catch(() => {});
+    const cands = await candidates(page, kind, MAX_PICK_CANDIDATES);
+    const picks = await pickElements(cands, jevTargets, { url: page.url(), title: await page.title() });
+
+    jevIndices.forEach((origIndex, j) => {
+      const { id, probability, confidence, probabilities, tokens } = picks[j];
+      const score = confidence ?? probability;
+      const accepted = id !== null && decide(score, 'pick') === 'pass';
+      const usedJev = j === 0; // one request for the whole batch — only the first result carries it
+      const cPart = confidence !== undefined ? ` c=${confidence.toFixed(2)}` : '';
+
+      if (!accepted) {
+        // Show what Jev was torn between — the wording of the step is the lever to fix this.
+        const file = dumpDebug('pick', { instruction: jevTargets[j], probabilities, confidence, candidates: cands });
+        const detail = `${id === null ? 'no matching element' : 'low confidence'} (${cands.length} candidates)${cPart} — top: ${topGuesses(probabilities, cands)} — candidates: ${file}`;
+        results[origIndex] = { locator: null, detail, tokens, usedJev, confidence };
+        return;
+      }
+
+      const cand = cands.find((c) => c.id === id)!;
+      results[origIndex] = {
+        locator: elementById(page, id as number, cand.frameIndex),
+        detail: `→ ${cand.desc} (p=${probability.toFixed(2)}${cPart})`,
+        tokens,
+        usedJev,
+        confidence,
+      };
+    });
+  }
+
+  return results;
 }
 
 async function resolveLocator(page: Page, kind: CandidateKind, target: string): Promise<Resolved> {
-  if (target.startsWith('css=')) {
-    const selector = target.slice(4);
-    return { locator: page.locator(selector), detail: `→ css=${selector}`, tokens: 0, usedJev: false };
-  }
-
-  // Let debounced autocompletes, modals etc. finish rendering before we look (networkidle fires too early:
-  // it sees the quiet gap *before* a debounced request starts).
-  await settle(page).catch(() => {});
-  const cands = await candidates(page, kind, MAX_PICK_CANDIDATES);
-  const { id, probability, probabilities, tokens } = await pickElement(cands, target);
-  const accepted = id !== null && decide(probability, 'pick') === 'pass';
-
-  if (!accepted) {
-    // Show what Jev was torn between — the wording of the step is the lever to fix this.
-    const file = dumpDebug('pick', { instruction: target, probabilities, candidates: cands });
-    const detail = `${id === null ? 'no matching element' : 'low confidence'} (${cands.length} candidates) — top: ${topGuesses(probabilities, cands)} — candidates: ${file}`;
-    return { locator: null, detail, tokens, usedJev: true };
-  }
-
-  const cand = cands.find((c) => c.id === id)!;
-  return {
-    locator: elementById(page, id as number, cand.frameIndex),
-    detail: `→ ${cand.desc} (p=${probability.toFixed(2)})`,
-    tokens,
-    usedJev: true,
-  };
+  return (await resolveLocators(page, kind, [target]))[0];
 }
 
 export interface StepContext {
@@ -169,15 +202,16 @@ async function withResolved(
 }
 
 // The too-long-state halving retry (moved out of jev.ts's judge(), which no longer knows about
-// aria) plus the shared token accounting — every judge() call site goes through this.
-async function judgeSnapshot(ctx: StepContext, snap: Snapshot, claim: string): Promise<{ probability: number }> {
+// aria) plus the shared token accounting — every judge() call site goes through this. One request
+// judges every claim (each still its own Noul question, so its own probability).
+async function judgeSnapshot(ctx: StepContext, snap: Snapshot, claims: string[]): Promise<{ probabilities: number[] }> {
   let s = snap;
   for (;;) {
     try {
       const { url, title, aria } = s;
-      const { probability, tokens } = await judge({ url, title, aria, events: ctx.events }, claim);
+      const { probabilities, tokens } = await judge({ url, title, aria, events: ctx.events }, claims);
       ctx.track(tokens);
-      return { probability };
+      return { probabilities };
     } catch (err) {
       // A char cap can't guarantee the model's token limit (dense tables ≈ 2x tokens per char): halve and retry.
       if (!isTooLong(err) || s.aria.length < 4000) throw err;
@@ -189,13 +223,12 @@ async function judgeSnapshot(ctx: StepContext, snap: Snapshot, claim: string): P
 }
 
 async function runDrag(ctx: StepContext, step: Extract<Step, { kind: 'drag' }>, stepLabel: string): Promise<StepResult> {
-  const rs = await resolveLocator(ctx.page, 'click', step.source);
+  const [rs, rt] = await resolveLocators(ctx.page, 'click', [step.source, step.target]);
   trackResolved(ctx, rs);
+  trackResolved(ctx, rt);
   if (!rs.locator) {
     return { step: stepLabel, status: 'inconclusive', detail: rs.detail };
   }
-  const rt = await resolveLocator(ctx.page, 'click', step.target);
-  trackResolved(ctx, rt);
   if (!rt.locator) {
     return { step: stepLabel, status: 'inconclusive', detail: rt.detail };
   }
@@ -227,7 +260,8 @@ async function runWait(ctx: StepContext, step: Extract<Step, { kind: 'wait' }>, 
   while (polls < MAX_POLLS && Date.now() < deadline) {
     await settle(ctx.page).catch(() => {});
     const snap = await snapshot(ctx.page);
-    const { probability } = await judgeSnapshot(ctx, snap, step.condition);
+    const { probabilities } = await judgeSnapshot(ctx, snap, [step.condition]);
+    const probability = probabilities[0];
     polls++;
     lastProbability = probability;
     lastSnap = snap;
@@ -251,14 +285,16 @@ async function runWait(ctx: StepContext, step: Extract<Step, { kind: 'wait' }>, 
 }
 
 async function runExpect(ctx: StepContext, step: Extract<Step, { kind: 'expect' }>, stepLabel: string): Promise<StepResult> {
-  const judgeExpectation = async (snap: Snapshot): Promise<StepResult> => {
-    const { probability } = await judgeSnapshot(ctx, snap, step.expectation);
-    const status = decide(probability, 'expect');
-    let detail = `p=${probability.toFixed(2)} @ ${ctx.page.url()}`;
+  const judgeExpectations = async (snap: Snapshot): Promise<StepResult> => {
+    const { probabilities } = await judgeSnapshot(ctx, snap, step.expectations);
+    const decisions = probabilities.map((p) => decide(p, 'expect'));
+    // fail beats inconclusive beats pass: one broken claim fails the step even if the rest hold.
+    const status: Status = decisions.includes('fail') ? 'fail' : decisions.includes('inconclusive') ? 'inconclusive' : 'pass';
+    let detail = `p=${probabilities.map((p) => p.toFixed(2)).join(', ')} @ ${ctx.page.url()}`;
     if (snap.truncated) detail += ' (aria truncated at 60k chars)';
     if (status !== 'pass') {
-      // Dump what Jev saw so the author can tune the expectation against the real state.
-      const file = dumpDebug('expect', { expectation: step.expectation, probability, state: snap });
+      // Dump what Jev saw so the author can tune the expectations against the real state.
+      const file = dumpDebug('expect', { expectations: step.expectations, probabilities, state: snap });
       detail += ` — state: ${file}`;
     }
     return { step: stepLabel, status, detail };
@@ -269,10 +305,10 @@ async function runExpect(ctx: StepContext, step: Extract<Step, { kind: 'expect' 
     if (!r.locator) {
       return { step: stepLabel, status: 'inconclusive', detail: r.detail };
     }
-    return judgeExpectation(await snapshotRegion(ctx.page, r.locator));
+    return judgeExpectations(await snapshotRegion(ctx.page, r.locator));
   }
   await settle(ctx.page).catch(() => {}); // SPA route changes resolve 'load' instantly; wait for the content
-  return judgeExpectation(await snapshot(ctx.page));
+  return judgeExpectations(await snapshot(ctx.page));
 }
 
 export async function runStep(ctx: StepContext, step: Step): Promise<StepResult> {

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, selectProvider } from './jev.js';
+import { UnprocessableEntityError, BadRequestError } from '@typesafe-ai/sdk';
+import { decide, selectProvider, isTooLong } from './jev.js';
 
 test('expect: high probability passes', () => {
   assert.equal(decide(0.95, 'expect'), 'pass');
@@ -58,4 +59,18 @@ test('selectProvider: no keys throws naming both variables', () => {
 
 test('selectProvider: JEV_PROVIDER=typesafe without its key throws naming TYPESAFE_API_KEY', () => {
   assert.throws(() => selectProvider({ JEV_PROVIDER: 'typesafe', AI_GATEWAY_API_KEY: 'k' }), /TYPESAFE_API_KEY/);
+});
+
+test('isTooLong: a 422 whose body names max_tokens_exceeded is too long', () => {
+  const body = { error: { code: 'max_tokens_exceeded' } };
+  assert.equal(isTooLong(new UnprocessableEntityError(422, body, new Headers())), true);
+});
+
+test('isTooLong: a 400 with the same body is not too long — status decides, not the keyword alone', () => {
+  const body = { error: { code: 'max_tokens_exceeded' } };
+  assert.equal(isTooLong(new BadRequestError(400, body, new Headers(), 'Bad Request')), false);
+});
+
+test('isTooLong: a plain Error naming the gateway wording is too long', () => {
+  assert.equal(isTooLong(new Error('max_tokens_exceeded')), true);
 });

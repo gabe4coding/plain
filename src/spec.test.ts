@@ -104,23 +104,38 @@ steps:
   assert.deepEqual(spec.steps[1], { kind: 'wait', condition: "the text 'Hello World!' is visible", optional: false });
 });
 
-test('expect supports both the plain string and scoped { that, within } forms', () => {
+test('expect supports the plain string, list, and scoped { that, within } forms', () => {
   const path = specFile(`
 name: expect forms
 url: https://example.com
 steps:
   - expect: "the page loaded"
+  - expect: ["claim one is true", "claim two is true"]
   - expect: { that: "a success message is shown", within: "the dialog" }
+  - expect: { that: ["claim a", "claim b"] }
 `);
   const spec = loadSpec(path);
-  assert.deepEqual(spec.steps[0], { kind: 'expect', expectation: 'the page loaded', optional: false });
+  assert.deepEqual(spec.steps[0], { kind: 'expect', expectations: ['the page loaded'], optional: false });
   assert.deepEqual(spec.steps[1], {
     kind: 'expect',
-    expectation: 'a success message is shown',
+    expectations: ['claim one is true', 'claim two is true'],
+    optional: false,
+  });
+  assert.deepEqual(spec.steps[2], {
+    kind: 'expect',
+    expectations: ['a success message is shown'],
     within: 'the dialog',
     optional: false,
   });
-  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - expect: { that: "a" }\n')));
+  assert.deepEqual(spec.steps[3], { kind: 'expect', expectations: ['claim a', 'claim b'], optional: false });
+});
+
+test('expect rejects an empty list and a non-string item, in both the plain and { that } forms', () => {
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - expect: []\n')));
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - expect: [1]\n')));
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - expect: { that: [] }\n')));
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - expect: { that: [1] }\n')));
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - expect: { that: "" }\n')));
 });
 
 test('auth option is parsed, literal values pass through unchanged', () => {

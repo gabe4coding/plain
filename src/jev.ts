@@ -1,11 +1,13 @@
-import { experimental_evaluate as evaluate } from 'ai';
-import { TypeSafeClient, noul, choice } from '@typesafe-ai/sdk';
+import { experimental_evaluate as evaluate, APICallError } from 'ai';
+import { TypeSafeClient, UnprocessableEntityError, noul, choice } from '@typesafe-ai/sdk';
 import type { Candidate } from './page.js';
 
 export type Provider = 'typesafe' | 'gateway';
 
 export const MODEL_BY_PROVIDER: Record<Provider, string> = {
-  typesafe: 'jev-latest',
+  // Pinned: decide()'s thresholds and the README's phrasing rules were tuned against this
+  // version. `jev-latest` resolved to 1.13.0 as of 2026-09-19 — bump deliberately, re-tune after.
+  typesafe: 'jev-1.13.0',
   gateway: 'typesafe-ai/jev',
 };
 
@@ -41,7 +43,16 @@ export function provider(): Provider {
 }
 
 function typesafe(): TypeSafeClient {
-  if (!typesafeClient) typesafeClient = new TypeSafeClient({ apiKey: process.env.TYPESAFE_API_KEY });
+  if (!typesafeClient) {
+    typesafeClient = new TypeSafeClient({
+      apiKey: process.env.TYPESAFE_API_KEY,
+      // Per attempt. The SDK default is 10 s; large picks (~20k tokens) have taken 17–49 s live.
+      timeout: 60_000,
+      // The SDK already retries 408/429/5xx (incl. 529 Overloaded) with jittered backoff and honors
+      // Retry-After. Widened so a free-tier rate-limit window (~60 s) and 5xx bursts are outlasted.
+      retry: { maxRetries: 4, backoffInitialMs: 10_000, backoffMaxMs: 65_000, maxRetryAfterMs: 65_000 },
+    });
+  }
   return typesafeClient;
 }
 
@@ -52,23 +63,21 @@ const RATE_LIMIT_BACKOFF_MS = 65_000;
 
 const UPSTREAM_BACKOFF_MS = 10_000; // gateway 5xx "temporarily unavailable": the SDK's own retries are seconds apart
 
-// ponytail: TypeSafeClient's APIError exposes `status`; cast past the plain Error type to read it.
-function httpStatus(err: unknown): number | undefined {
-  const status = (err as any)?.status;
-  return typeof status === 'number' ? status : undefined;
-}
-
-async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
+// The gateway path (Vercel AI SDK) keeps its own retry loop: its backoff is seconds-scale and
+// can't outlast a free-tier rate-limit window (~60s) or a 5xx burst the way the TypeSafe SDK's
+// own retry policy (configured above, seen by callTypesafe only) can. Used only around
+// callGateway — callTypesafe relies entirely on the client's built-in retries.
+async function withGatewayRetry<T>(fn: () => Promise<T>): Promise<T> {
   // Upstream 5xx cluster on the largest payloads (≈15–20k tokens), so allow three retries with doubling
   // backoff (10s, 20s, 40s); a rate limit gets one wait of a full window.
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn();
     } catch (err) {
+      const status = APICallError.isInstance(err) ? err.statusCode : undefined;
       const msg = err instanceof Error ? err.message : '';
-      const status = httpStatus(err);
-      const rateLimited = /rate.?limit/i.test(msg) || status === 429;
-      const upstream = /temporarily unavailable|internal server/i.test(msg) || (typeof status === 'number' && status >= 500);
+      const rateLimited = status === 429 || /rate.?limit/i.test(msg);
+      const upstream = (typeof status === 'number' && status >= 500) || /temporarily unavailable|internal server/i.test(msg);
       if (rateLimited && attempt === 0) await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
       else if (upstream && attempt < 3) await new Promise((r) => setTimeout(r, UPSTREAM_BACKOFF_MS * 2 ** attempt));
       else throw err;
@@ -76,86 +85,89 @@ async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-// The 422 body shape for a too-long TypeSafe request is a best-effort guess, not confirmed against
-// a live too-long TypeSafe response — matching on status + keyword is what's checkable without one.
 export function isTooLong(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (/max_tokens_exceeded/.test(err.message)) return true;
-  return httpStatus(err) === 422 && /max_tokens_exceeded|too (long|large)|token/i.test(err.message);
+  if (err instanceof UnprocessableEntityError) {
+    // ponytail: the too-long 422 body is undocumented (the docs only give the limits: 64k tokens per
+    // request, 32k for state + longest question). Match status + keyword until a live sample confirms it.
+    return /max_tokens_exceeded|too (long|large)|token/i.test(JSON.stringify(err.body ?? err.message));
+  }
+  return err instanceof Error && /max_tokens_exceeded/.test(err.message); // gateway wording, seen live
 }
 
 interface ChoiceQuestion {
   kind: 'choice';
-  name: string;
   instructions: string;
   criteria: Record<string, string>;
 }
 interface BooleanQuestion {
   kind: 'boolean';
-  name: string;
   instructions: string;
 }
+export type Question = ChoiceQuestion | BooleanQuestion;
 
-interface AskResult {
-  tokens: number;
-  choice?: string;
-  probabilities?: Record<string, number>;
-  probability?: number;
-}
-
-// Raw shape an answer comes back in from either backend, before ask() normalizes it.
+// Raw shape an answer comes back in from either backend, before ask() normalizes it. `confidence`
+// only ever comes from a Choice answer (TypeSafe's `ChoiceResponse`); carried through, not decided on.
 interface RawAnswer {
   choice?: string;
   probabilities?: Record<string, number>;
   probability?: number;
   noul?: number;
+  confidence?: number;
 }
 
-async function callGateway(
-  state: unknown,
-  question: ChoiceQuestion | BooleanQuestion
-): Promise<{ answer: RawAnswer; tokens: number }> {
+export interface AskAnswer {
+  choice?: string;
+  probabilities?: Record<string, number>;
+  probability?: number;
+  confidence?: number;
+}
+
+async function callGateway(state: unknown, questions: Question[]): Promise<{ answers: RawAnswer[]; tokens: number }> {
+  const keys = questions.map((_, i) => `q${i}`);
   const { answers, usage } = await evaluate({
     model: MODEL_BY_PROVIDER.gateway,
     // ponytail: state is plain JSON at runtime; the SDK's JSONObject type wants an index
     // signature that our named interfaces don't declare, so cast past it here.
     state: state as any,
-    questions: {
-      [question.name]:
-        question.kind === 'choice'
-          ? { type: 'choice', instructions: question.instructions, criteria: question.criteria }
-          : { type: 'boolean', instructions: question.instructions },
-    },
+    questions: Object.fromEntries(
+      questions.map((q, i) => [
+        keys[i],
+        q.kind === 'choice'
+          ? { type: 'choice', instructions: q.instructions, criteria: q.criteria }
+          : { type: 'boolean', instructions: q.instructions },
+      ])
+    ),
   });
-  const answer = (answers as Record<string, RawAnswer>)[question.name];
-  return { answer, tokens: usage.totalTokens ?? 0 };
+  const raw = answers as Record<string, RawAnswer>;
+  return { answers: keys.map((k) => raw[k]), tokens: usage.totalTokens ?? 0 };
 }
 
-async function callTypesafe(
-  state: unknown,
-  question: ChoiceQuestion | BooleanQuestion
-): Promise<{ answer: RawAnswer; tokens: number }> {
+async function callTypesafe(state: unknown, questions: Question[]): Promise<{ answers: RawAnswer[]; tokens: number }> {
+  const keys = questions.map((_, i) => `q${i}`);
   const { answers, usage } = await typesafe().systemOne({
     model: MODEL_BY_PROVIDER.typesafe,
     state: state as any,
-    questions: {
-      [question.name]:
-        question.kind === 'choice' ? choice(question.instructions, question.criteria) : noul(question.instructions),
-    },
+    questions: Object.fromEntries(
+      questions.map((q, i) => [keys[i], q.kind === 'choice' ? choice(q.instructions, q.criteria) : noul(q.instructions)])
+    ),
   });
-  const answer = (answers as Record<string, RawAnswer>)[question.name];
-  return { answer, tokens: usage.input_tokens + usage.output_tokens };
+  const raw = answers as Record<string, RawAnswer>;
+  return { answers: keys.map((k) => raw[k]), tokens: usage.input_tokens + usage.output_tokens };
 }
 
-// The one call path both pickElement and judge go through: builds a provider-neutral question,
-// dispatches on the resolved provider, and normalizes the answer shape the two backends disagree on.
-async function ask(state: unknown, question: ChoiceQuestion | BooleanQuestion): Promise<AskResult> {
-  const { answer, tokens } = await withRateLimitRetry(() =>
-    provider() === 'gateway' ? callGateway(state, question) : callTypesafe(state, question)
-  );
-  return question.kind === 'choice'
-    ? { tokens, choice: answer.choice, probabilities: answer.probabilities ?? {} }
-    : { tokens, probability: answer.probability ?? answer.noul };
+// The one call path pickElements and judge both go through: dispatches on the resolved provider
+// and normalizes the answer shape the two backends disagree on, in request order.
+async function ask(state: unknown, questions: Question[]): Promise<{ tokens: number; answers: AskAnswer[] }> {
+  const { answers, tokens } =
+    provider() === 'gateway' ? await withGatewayRetry(() => callGateway(state, questions)) : await callTypesafe(state, questions);
+  return {
+    tokens,
+    answers: answers.map((answer, i) =>
+      questions[i].kind === 'choice'
+        ? { choice: answer.choice, probabilities: answer.probabilities ?? {}, confidence: answer.confidence }
+        : { probability: answer.probability ?? answer.noul, confidence: answer.confidence }
+    ),
+  };
 }
 
 // Hard ceiling: a Jev Choice question accepts at most 255 options, one of which is `none`. Selector-matched
@@ -165,39 +177,57 @@ export const MAX_PICK_CANDIDATES = 254;
 
 export interface PickResult {
   id: number | null;
-  probability: number;
+  probability: number; // p of the chosen option
+  confidence?: number; // TypeSafe Choice `confidence`; absent on the gateway path
   probabilities: Record<string, number>; // option key ('none' or candidate id) → p
-  tokens: number;
+  tokens: number; // whole-request tokens on the FIRST result, 0 on the others (one request)
 }
 
-export async function pickElement(candidates: Candidate[], instruction: string): Promise<PickResult> {
+// One Choice question per instruction, all sharing the same criteria and one request. Descriptions
+// are deliberately sent twice (state.elements and criteria). Measured 2026-09-19 with them only in
+// criteria: pick tokens -40% on a 192-candidate page, but pick p -0.05 on average and up to -0.33;
+// for a test tool a wrong pick costs more than the tokens.
+export async function pickElements(
+  candidates: Candidate[],
+  instructions: string[],
+  page: { url: string; title: string }
+): Promise<PickResult[]> {
   const criteria: Record<string, string> = { none: 'No listed element matches the instruction' };
   for (const c of candidates) criteria[String(c.id)] = c.desc;
 
-  // `today` lets instructions like "the earliest day after today" have one answer instead of many.
-  const state = { instruction, today: new Date().toISOString().slice(0, 10), elements: candidates };
-  const { choice: picked, probabilities, tokens } = await ask(state, {
+  // `instructions` as a list (not folded into each question's text) plus `today` lets a step like
+  // "the earliest day after today" have one answer instead of one per instruction wording.
+  const state = {
+    url: page.url,
+    title: page.title,
+    today: new Date().toISOString().slice(0, 10),
+    instructions,
+    elements: candidates,
+  };
+  const questions: Question[] = instructions.map((_, i) => ({
     kind: 'choice',
-    name: 'pick',
-    instructions: 'Which element does the instruction refer to? Pick `none` if no element matches.',
+    instructions: `Which element does \`instructions[${i}]\` refer to? Pick \`none\` if no listed element matches.`,
     criteria,
+  }));
+  const { tokens, answers } = await ask(state, questions);
+
+  return answers.map((answer, i) => {
+    const { choice: picked, probabilities, confidence } = answer;
+    const id = picked === 'none' ? null : Number(picked);
+    const probability = probabilities?.[picked!] ?? 0;
+    return { id, probability, confidence, probabilities: probabilities ?? {}, tokens: i === 0 ? tokens : 0 };
   });
-
-  const id = picked === 'none' ? null : Number(picked);
-  const probability = probabilities?.[picked!] ?? 0;
-  return { id, probability, probabilities: probabilities ?? {}, tokens };
 }
 
-export interface JudgeResult {
-  probability: number;
-  tokens: number;
-}
-
-// One-shot: the too-long-state halving retry lives in runner.ts's judgeSnapshot, which knows the
-// Snapshot shape and can re-derive `aria` for the next attempt. Errors here propagate to the caller.
-export async function judge(state: unknown, expectation: string): Promise<JudgeResult> {
-  const { probability, tokens } = await ask(state, { kind: 'boolean', name: 'holds', instructions: expectation });
-  return { probability: probability ?? 0, tokens };
+// One Noul per claim, one request. The too-long-state halving retry lives in steps.ts's
+// judgeSnapshot, which knows the Snapshot shape and can re-derive `aria` for the next attempt.
+// Errors here propagate to the caller.
+export async function judge(state: unknown, claims: string[]): Promise<{ probabilities: number[]; tokens: number }> {
+  const { tokens, answers } = await ask(
+    state,
+    claims.map((c) => ({ kind: 'boolean', instructions: c }))
+  );
+  return { probabilities: answers.map((a) => a.probability ?? 0), tokens };
 }
 
 export type Decision = 'pass' | 'fail' | 'inconclusive';

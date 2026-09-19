@@ -18,7 +18,7 @@ export type Step =
   | { kind: 'press'; key: string; optional?: boolean }
   | { kind: 'drag'; source: string; target: string; optional?: boolean }
   | { kind: 'mouse'; x: number; y: number; optional?: boolean }
-  | { kind: 'expect'; expectation: string; within?: string; optional?: boolean };
+  | { kind: 'expect'; expectations: string[]; within?: string; optional?: boolean };
 
 export interface Spec {
   name: string;
@@ -42,6 +42,21 @@ function resolveEnvRef(path: string, field: string, value: string): string {
   const resolved = process.env[name];
   if (!resolved) fail(`${path}: "${field}" references $${name} but that env var is not set`);
   return resolved;
+}
+
+// `expect`/`expect.that` takes one claim (a string) or several (a list) — always normalized to a
+// non-empty string array so steps.ts judges every claim in one Jev request.
+function parseExpectations(path: string, i: number, val: unknown, field: string): string[] {
+  if (typeof val === 'string') {
+    if (!val) fail(`${path}: step ${i} "${field}" must be a non-empty string`);
+    return [val];
+  }
+  if (Array.isArray(val)) {
+    if (val.length === 0 || !val.every((v) => typeof v === 'string' && v))
+      fail(`${path}: step ${i} "${field}" must be a non-empty list of non-empty strings`);
+    return val as string[];
+  }
+  fail(`${path}: step ${i} "${field}" must be a non-empty string or a non-empty list of strings`);
 }
 
 const STEP_KINDS =
@@ -153,14 +168,17 @@ export function loadSpec(path: string): Spec {
         return { kind: 'mouse', x: m.x, y: m.y, optional };
       }
       case 'expect': {
-        if (typeof val === 'string' && val) return { kind: 'expect', expectation: val, optional };
+        if (typeof val === 'string' || Array.isArray(val)) {
+          return { kind: 'expect', expectations: parseExpectations(path, i, val, 'expect'), optional };
+        }
         if (val !== null && typeof val === 'object') {
           const e = val as Record<string, unknown>;
-          if (typeof e.that !== 'string' || !e.that) fail(`${path}: step ${i} "expect.that" must be a non-empty string`);
+          const expectations = parseExpectations(path, i, e.that, 'expect.that');
+          if (e.within === undefined) return { kind: 'expect', expectations, optional };
           if (typeof e.within !== 'string' || !e.within) fail(`${path}: step ${i} "expect.within" must be a non-empty string`);
-          return { kind: 'expect', expectation: e.that, within: e.within, optional };
+          return { kind: 'expect', expectations, within: e.within, optional };
         }
-        fail(`${path}: step ${i} "expect" must be a non-empty string or a { that, within } mapping`);
+        fail(`${path}: step ${i} "expect" must be a non-empty string, a list of strings, or a { that, within } mapping`);
       }
       default:
         fail(`${path}: step ${i} has unknown key "${key}" (expected one of ${STEP_KINDS})`);

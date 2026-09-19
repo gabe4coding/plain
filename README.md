@@ -8,7 +8,11 @@ expectation holds.
 Install: `npm i && npx playwright install chromium`. Env: set `TYPESAFE_API_KEY` (TypeSafe direct,
 default) or `AI_GATEWAY_API_KEY` (Vercel AI Gateway) — `TYPESAFE_API_KEY` wins when both are set,
 or force one with `JEV_PROVIDER=typesafe|gateway`. Either can live in a `.env` file next to where
-you run the CLI (copy `.env.example`) instead of the real environment.
+you run the CLI (copy `.env.example`) instead of the real environment. The model is pinned to a
+tested version (`jev-1.13.0` on TypeSafe) rather than following `jev-latest`, since the thresholds
+below and this file's phrasing advice were tuned against it. On the TypeSafe path, the SDK's own
+client handles request timeouts and retries (429/5xx, honoring `Retry-After`); the Vercel AI
+Gateway path keeps its own retry loop since that SDK's backoff can't outlast a rate-limit window.
 Run: `npm run build && node dist/cli.js examples/login.yaml [--headless] [--timeout 15000]` — the browser is visible by default; `--headless` hides it.
 
 ```yaml
@@ -60,6 +64,15 @@ error happened" or "a file was downloaded" are answerable even though neither sh
 ariaSnapshot (`main`, `dialog`, `form`, `table`, `[role=region|dialog|main|tabpanel|list]`, ...) instead of
 the whole page — useful once a page has more than one thing going on.
 
+`expect` also takes a list: `expect: [claim, claim]` (or `{ that: [claim, claim], within: ... }`) takes one
+page snapshot and one Jev request for all of them, each still judged as its own claim with its own
+probability — cheaper than one `expect` per claim when they all read the same state. The step fails if any
+claim fails, is inconclusive if any is inconclusive (and none failed), otherwise passes.
+
+Element picks are gated on the model's `confidence` for the chosen option when the backend returns it
+(TypeSafe), falling back to the option's probability on the gateway path; detail lines show `p=` (and
+`c=` when confidence is available). A `drag` step resolves both its source and target in one such request.
+
 The candidate list Jev picks from also includes the outermost element with a `cursor: pointer` style (React-style
 clickable cards), `[tabindex]`/`[contenteditable]`/`summary`/`label`/`[draggable=true]`, `img`/`svg`/`figure`
 for `hover`, anything inside an open shadow root, and everything inside same-page iframes (prefixed
@@ -72,7 +85,8 @@ Dense pages whose aria exceeds the model's token limit are halved automatically 
 Phrasing that Jev answers well (the lever is wording, never the thresholds): give each step **one** answer —
 "the earliest day after today", not "an available day" (5 valid options split the probability to ~0.45);
 name the sibling to exclude ("the cuisine input, not the where field"); keep `expect` atomic — one claim, not
-"restaurant page AND date AND time"; name things the way the accessibility tree does ("a heading with the text
+"restaurant page AND date AND time" (use the list form above for several atomic claims against the same
+state); name things the way the accessibility tree does ("a heading with the text
 'name: user1'" scored 0.97 where "a caption …" scored 0.86). When a step is `?`, the report lists the top-3 candidates and dumps what
 Jev saw to `$TMPDIR/jev-e2e/*.json`; fix the wording against that, then rerun. See `examples/thefork-identita-golose.yaml`.
 `npm run example` runs 3 specs; `login-fails.yaml` is meant to fail, so its exit code 1 is expected.
