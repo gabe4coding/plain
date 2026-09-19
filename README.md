@@ -90,3 +90,22 @@ state); name things the way the accessibility tree does ("a heading with the tex
 'name: user1'" scored 0.97 where "a caption …" scored 0.86). When a step is `?`, the report lists the top-3 candidates and dumps what
 Jev saw to `$TMPDIR/jev-e2e/*.json`; fix the wording against that, then rerun. See `examples/thefork-identita-golose.yaml`.
 `npm run example` runs 3 specs; `login-fails.yaml` is meant to fail, so its exit code 1 is expected.
+
+## Agent mode (MCP)
+
+`node dist/cli.js mcp [--headless] [--timeout <ms>]` serves the same engine as an MCP server over stdio, so an
+agent can drive **one persistent browser session** step by step instead of writing a spec up front. Jev still does
+every pick and every judgment, so the agent never has to read the accessibility tree itself (5–20k tokens per page)
+— it sends one sentence per step and gets one line back. Register it in Claude Code from the repo directory
+(the CLI reads `.env` from its cwd):
+
+```
+claude mcp add jev-e2e -- node /path/to/jev-e2e/dist/cli.js --headless mcp
+```
+
+Tools: `open {url}` starts the browser (first call) or navigates; `step {step}` runs one YAML-shaped step
+(`{click: "the Login button"}`, `{fill: {target, value}}`, `{expect: [...]}`, …, same vocabulary and phrasing rules
+as above, returned with `status`, `detail`, `notes`, `url`, `jevTokens`); `find {kind, target}` is a dry run of a
+pick; `snapshot {maxChars}` returns the aria tree as an escape hatch when rephrasing does not help; `save {path,
+name}` writes everything run so far as a spec the batch runner replays. Rejected picks come back `inconclusive`
+with the top guesses in `detail`, so the agent can rephrase and retry.

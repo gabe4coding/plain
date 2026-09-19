@@ -1,0 +1,17 @@
+name: search for restaurants in london on thefork and open the first result
+url: https://www.preprod.thefork.co.uk
+steps:
+  - goto: /
+  - click: "the 'accept all' button of a cookie consent banner or popup, if such a banner is open (a footer 'Cookie consent' settings link does not count)"
+    optional: true
+  - fill: { target: "the location or 'where' search input (not the cuisine or restaurant-name field)", value: "London" }
+  - click: "the autocomplete suggestion for London in the open dropdown below the location input"
+  - click: "the search button of the homepage search form"
+  - expect: "this is a search results page listing restaurants in London (not the homepage)"
+  # A filters modal sometimes opens automatically on the results page and blocks clicks until closed.
+  - click: "the close button of an open filters modal or dialog, if one is blocking the page"
+    optional: true
+  - click: "the first restaurant card's name link in the results list"
+  # That link opens in a new tab; give the tab switch a moment before asserting on it.
+  - wait: "a specific restaurant's page has loaded, showing its name and address (not a results list, not a service-unavailable error)"
+  - expect: "this is a restaurant detail page (not the search results list, not the homepage)"

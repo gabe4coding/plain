@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { loadSpec } from './spec.js';
 import { runSpec } from './runner.js';
+import { serveMcp } from './mcp.js';
 import { provider, MODEL_BY_PROVIDER } from './jev.js';
 
 // ponytail: cwd .env only; pass --env-file for another path
@@ -28,35 +29,39 @@ const { values, positionals } = parseArgs({
 });
 
 if (positionals.length === 0) {
-  console.error('usage: jev-e2e [--headless] [--timeout <ms>] <spec.yaml> [more.yaml ...]');
+  console.error('usage: jev-e2e [--headless] [--timeout <ms>] <spec.yaml> [more.yaml ...] | mcp');
   process.exit(2);
 }
 
 const opts = { headed: !values.headless, timeout: Number(values.timeout) };
 
-function icon(status: string): string {
-  if (status === 'pass') return '✔';
-  if (status === 'inconclusive') return '?';
-  if (status === 'skipped') return '»'; // ponytail: optional step that didn't land, run continued
-  return '✘'; // fail or error
-}
+if (positionals[0] === 'mcp') {
+  await serveMcp(opts); // stays alive until the transport closes
+} else {
+  const icon = (status: string): string => {
+    if (status === 'pass') return '✔';
+    if (status === 'inconclusive') return '?';
+    if (status === 'skipped') return '»'; // ponytail: optional step that didn't land, run continued
+    return '✘'; // fail or error
+  };
 
-let allPassed = true;
+  let allPassed = true;
 
-for (const file of positionals) {
-  try {
-    const spec = loadSpec(file);
-    const result = await runSpec(spec, opts);
-    if (result.status !== 'pass') allPassed = false;
-    console.log(`${icon(result.status)} ${spec.name}  (${result.jevCalls} Jev calls, ${result.totalTokens} tokens)`);
-    for (const s of result.steps) {
-      console.log(`  ${icon(s.status)} ${s.step}${s.detail ? ' ' + s.detail : ''}`);
+  for (const file of positionals) {
+    try {
+      const spec = loadSpec(file);
+      const result = await runSpec(spec, opts);
+      if (result.status !== 'pass') allPassed = false;
+      console.log(`${icon(result.status)} ${spec.name}  (${result.jevCalls} Jev calls, ${result.totalTokens} tokens)`);
+      for (const s of result.steps) {
+        console.log(`  ${icon(s.status)} ${s.step}${s.detail ? ' ' + s.detail : ''}`);
+      }
+    } catch (err) {
+      allPassed = false;
+      console.log(`✘ ${file}`);
+      console.log(`  error: ${err instanceof Error ? err.message : String(err)}`);
     }
-  } catch (err) {
-    allPassed = false;
-    console.log(`✘ ${file}`);
-    console.log(`  error: ${err instanceof Error ? err.message : String(err)}`);
   }
-}
 
-process.exit(allPassed ? 0 : 1);
+  process.exit(allPassed ? 0 : 1);
+}

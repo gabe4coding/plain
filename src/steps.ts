@@ -104,7 +104,7 @@ function topGuesses(probabilities: Record<string, number>, candidates: Candidate
     .join(' | ');
 }
 
-interface Resolved {
+export interface Resolved {
   locator: Locator | null;
   detail: string;
   tokens: number;
@@ -116,7 +116,7 @@ interface Resolved {
 // share ONE settle + ONE candidate scan + ONE pickElements() request (one request = one Jev call —
 // only the first Jev-resolved entry carries usedJev/tokens, matching pickElements()'s own contract).
 // Results come back in the same order as `targets`.
-async function resolveLocators(page: Page, kind: CandidateKind, targets: string[]): Promise<Resolved[]> {
+export async function resolveLocators(page: Page, kind: CandidateKind, targets: string[]): Promise<Resolved[]> {
   const results: Resolved[] = new Array(targets.length);
   const jevIndices: number[] = [];
   const jevTargets: string[] = [];
