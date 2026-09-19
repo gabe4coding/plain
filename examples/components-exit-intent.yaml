@@ -1,0 +1,10 @@
+name: exit intent modal fires when the pointer leaves through the top edge
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /exit_intent
+  - mouse: { x: 300, y: 300 }
+  - mouse: { x: 300, y: 0 }
+  - mouse: { x: 300, y: -10 }
+  - expect: "a heading with the text 'This is a modal window' is shown on the page"
+  - click: "the modal's Close button"
+  - expect: "there is no heading with the text 'This is a modal window' on the page"

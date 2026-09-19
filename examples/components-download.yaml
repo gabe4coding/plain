@@ -1,0 +1,6 @@
+name: file download is captured and visible to Jev
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /download
+  - click: "the first link in the file list whose filename ends in .txt"
+  - expect: "a text file was downloaded"

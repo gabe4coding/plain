@@ -1,0 +1,5 @@
+name: a page-load JS error is captured and visible to Jev
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /javascript_error
+  - expect: "a JavaScript error occurred on this page"

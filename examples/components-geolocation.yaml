@@ -1,0 +1,7 @@
+name: geolocation is emulated to Milan
+url: https://the-internet.herokuapp.com
+geolocation: { lat: 45.4642, lon: 9.19 }
+steps:
+  - goto: /geolocation
+  - click: "Where am I?"
+  - expect: "latitude around 45.46 and longitude around 9.19 are displayed"

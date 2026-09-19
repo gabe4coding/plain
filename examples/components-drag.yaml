@@ -1,0 +1,7 @@
+name: drag and drop swaps two boxes
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /drag_and_drop
+  - drag: { source: "the box labelled A", target: "the box labelled B" }
+  - expect: "the first banner element on the page contains the text B"
+  - expect: "the second banner element on the page contains the text A"

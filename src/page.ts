@@ -119,7 +119,10 @@ function collectCandidatesInPage(args: {
     return parts.join(' ');
   }
 
-  const EXTRA_SELECTOR = '[tabindex]:not([tabindex="-1"]), [contenteditable=true], summary, label';
+  // `[draggable=true]` catches HTML5 drag-and-drop sources/targets — the-internet's /drag_and_drop
+  // boxes are plain <div draggable="true"> with `cursor: move`, not `pointer`, so isPointer() alone
+  // would never surface them for a `drag` step.
+  const EXTRA_SELECTOR = '[tabindex]:not([tabindex="-1"]), [contenteditable=true], summary, label, [draggable=true]';
   const matched: Element[] = [];
   const extras: Element[] = [];
 

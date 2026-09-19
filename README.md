@@ -32,18 +32,35 @@ More step kinds, all accepting `optional: true` and a `css=` target like `click`
 - `scroll: <target | "top" | "bottom">` — `top`/`bottom` scroll the window; anything else scrolls that element into view
 - `wait: <string>` — `css=...` waits for that selector to be visible; otherwise Jev polls the natural-language
   condition every 1.5s (up to 8 times) until it holds
+- `drag: { source, target }` — both resolved like `click` targets, then dragged with a manual
+  hover/mouse-down/hover/hover/mouse-up sequence (works with native HTML5 drag-and-drop, unlike `dragTo()` alone)
+- `mouse: { x, y }` — moves the mouse to that page position (`y` may be negative, e.g. to trigger an
+  exit-intent handler past the viewport's top edge)
 
 `dialogs: accept | dismiss` (top-level, default `accept`) sets how `alert`/`confirm`/`prompt` are handled;
 each one fired is logged on the step's detail line. A popup/new tab becomes the active page for every step
-after it opens (also logged on the step that opened it) — closing the browser closes every tab.
+after it opens (also logged on the step that opened it, with dialog/download/error capture attached to it
+too) — closing the browser closes every tab.
+
+`auth: { user, pass }` (top-level) sends HTTP credentials (`context.httpCredentials`) for Basic/Digest auth
+prompts. `geolocation: { lat, lon }` (top-level) emulates a GPS position and grants the `geolocation`
+permission. Either value may be `$VAR` to read `process.env.VAR` instead of a literal, so a real credential
+never sits in the spec file — an error names the missing var.
+
+File downloads are saved to `$TMPDIR/jev-e2e/downloads/<suggested filename>` and logged on the step that
+triggered them. Uncaught page errors (`pageerror`) and `console.error` messages are also logged as they
+happen. All of this — dialogs, popups, downloads, page/console errors — is kept as a run-level `events` list
+(last 30) and handed to Jev alongside the page state on every `expect`/`wait`, so claims like "a JavaScript
+error happened" or "a file was downloaded" are answerable even though neither shows up in the aria snapshot.
 
 `expect` can be scoped: `expect: { that: "<claim>", within: "<target>" }` judges just that region's
 ariaSnapshot (`main`, `dialog`, `form`, `table`, `[role=region|dialog|main|tabpanel|list]`, ...) instead of
 the whole page — useful once a page has more than one thing going on.
 
 The candidate list Jev picks from also includes the outermost element with a `cursor: pointer` style (React-style
-clickable cards), `[tabindex]`/`[contenteditable]`/`summary`/`label`, `img`/`svg`/`figure` for `hover`, anything
-inside an open shadow root, and everything inside same-page iframes (prefixed `[iframe ...]`). Identical
+clickable cards), `[tabindex]`/`[contenteditable]`/`summary`/`label`/`[draggable=true]`, `img`/`svg`/`figure`
+for `hover`, anything inside an open shadow root, and everything inside same-page iframes (prefixed
+`[iframe ...]`). Identical
 descriptions get `#1`, `#2`… in DOM order so "the first …" has one answer. Hard ceiling: a Jev Choice takes at
 most 255 options, so the list is capped at 254 — real controls first, pointer extras last; past that, use `css=`.
 Dense pages whose aria exceeds the model's token limit are halved automatically (a warning says so) — scope with

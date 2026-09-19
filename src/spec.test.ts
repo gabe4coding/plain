@@ -123,6 +123,72 @@ steps:
   assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - expect: { that: "a" }\n')));
 });
 
+test('auth option is parsed, literal values pass through unchanged', () => {
+  const path = specFile(`
+name: auth
+url: https://example.com
+auth: { user: admin, pass: admin }
+steps:
+  - click: "ok"
+`);
+  const spec = loadSpec(path);
+  assert.deepEqual(spec.auth, { user: 'admin', pass: 'admin' });
+});
+
+test('auth option resolves $VAR values from the environment, errors clearly if unset', () => {
+  process.env.JEV_E2E_TEST_PASS = 'secret123';
+  const withEnv = loadSpec(
+    specFile('name: x\nurl: https://example.com\nauth: { user: admin, pass: "$JEV_E2E_TEST_PASS" }\nsteps:\n  - click: "ok"\n')
+  );
+  assert.deepEqual(withEnv.auth, { user: 'admin', pass: 'secret123' });
+  delete process.env.JEV_E2E_TEST_PASS;
+  assert.throws(
+    () => loadSpec(specFile('name: x\nurl: https://example.com\nauth: { user: admin, pass: "$JEV_E2E_TEST_PASS" }\nsteps:\n  - click: "ok"\n')),
+    /JEV_E2E_TEST_PASS/
+  );
+});
+
+test('geolocation option is parsed, requires numeric lat/lon', () => {
+  const path = specFile(`
+name: geo
+url: https://example.com
+geolocation: { lat: 45.4642, lon: 9.19 }
+steps:
+  - click: "ok"
+`);
+  const spec = loadSpec(path);
+  assert.deepEqual(spec.geolocation, { lat: 45.4642, lon: 9.19 });
+  assert.throws(() =>
+    loadSpec(specFile('name: x\nurl: https://example.com\ngeolocation: { lat: "45" }\nsteps:\n  - click: "ok"\n'))
+  );
+});
+
+test('drag step requires source and target', () => {
+  const path = specFile(`
+name: drag
+url: https://example.com
+steps:
+  - drag: { source: "the box labelled A", target: "the box labelled B" }
+`);
+  const spec = loadSpec(path);
+  assert.deepEqual(spec.steps[0], { kind: 'drag', source: 'the box labelled A', target: 'the box labelled B', optional: false });
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - drag: { source: "a" }\n')));
+});
+
+test('mouse step requires numeric x/y, y may be negative', () => {
+  const path = specFile(`
+name: mouse
+url: https://example.com
+steps:
+  - mouse: { x: 300, y: 300 }
+  - mouse: { x: 300, y: -10 }
+`);
+  const spec = loadSpec(path);
+  assert.deepEqual(spec.steps[0], { kind: 'mouse', x: 300, y: 300, optional: false });
+  assert.deepEqual(spec.steps[1], { kind: 'mouse', x: 300, y: -10, optional: false });
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - mouse: { x: "a", y: 1 }\n')));
+});
+
 test('dialogs option is parsed at the top level, defaults to accept', () => {
   const withDialogs = loadSpec(
     specFile('name: x\nurl: https://example.com\ndialogs: dismiss\nsteps:\n  - click: "ok"\n')

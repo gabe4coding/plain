@@ -1,0 +1,16 @@
+name: http basic and digest auth, plus a secure download
+url: https://the-internet.herokuapp.com
+auth: { user: admin, pass: admin }
+steps:
+  - goto: /basic_auth
+  - expect: "the Basic Auth page confirms the credentials were correct, with a congratulations message"
+  # Digest is served by the same site but Chromium's handling of digest auth via httpCredentials is
+  # less reliable than basic — kept gentle (wait, not expect) and optional so a real gap here is a
+  # reported finding, not a hard failure of the whole spec.
+  - goto: /digest_auth
+    optional: true
+  - wait: "the page confirms the credentials were correct, with a congratulations message"
+    optional: true
+  - goto: /download_secure
+  - click: "the first file link in the list"
+  - expect: "a file was downloaded"

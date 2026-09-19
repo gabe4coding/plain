@@ -11,15 +11,19 @@ const RATE_LIMIT_BACKOFF_MS = 65_000;
 const UPSTREAM_BACKOFF_MS = 10_000; // gateway 5xx "temporarily unavailable": the SDK's own retries are seconds apart
 
 async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : '';
-    const rateLimited = /rate.?limit/i.test(msg);
-    const upstream = /temporarily unavailable|internal server/i.test(msg);
-    if (!rateLimited && !upstream) throw err;
-    await new Promise((resolve) => setTimeout(resolve, rateLimited ? RATE_LIMIT_BACKOFF_MS : UPSTREAM_BACKOFF_MS));
-    return fn();
+  // Upstream 5xx cluster on the largest payloads (≈15–20k tokens), so allow three retries with doubling
+  // backoff (10s, 20s, 40s); a rate limit gets one wait of a full window.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      const rateLimited = /rate.?limit/i.test(msg);
+      const upstream = /temporarily unavailable|internal server/i.test(msg);
+      if (rateLimited && attempt === 0) await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
+      else if (upstream && attempt < 3) await new Promise((r) => setTimeout(r, UPSTREAM_BACKOFF_MS * 2 ** attempt));
+      else throw err;
+    }
   }
 }
 

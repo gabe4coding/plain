@@ -16,6 +16,8 @@ export type Step =
   | { kind: 'scroll'; target: string; optional?: boolean }
   | { kind: 'wait'; condition: string; optional?: boolean }
   | { kind: 'press'; key: string; optional?: boolean }
+  | { kind: 'drag'; source: string; target: string; optional?: boolean }
+  | { kind: 'mouse'; x: number; y: number; optional?: boolean }
   | { kind: 'expect'; expectation: string; within?: string; optional?: boolean };
 
 export interface Spec {
@@ -23,6 +25,8 @@ export interface Spec {
   url: string;
   dir: string; // directory the spec file lives in — `upload.files` paths resolve relative to this
   dialogs: 'accept' | 'dismiss';
+  auth?: { user: string; pass: string };
+  geolocation?: { lat: number; lon: number };
   steps: Step[];
 }
 
@@ -30,8 +34,18 @@ function fail(msg: string): never {
   throw new Error(`invalid spec: ${msg}`);
 }
 
+// `$VAR` in an auth value means "read process.env.VAR" so a credential never sits in the spec file
+// itself. A plain string (e.g. the-internet's public demo creds) passes through unchanged.
+function resolveEnvRef(path: string, field: string, value: string): string {
+  if (!value.startsWith('$')) return value;
+  const name = value.slice(1);
+  const resolved = process.env[name];
+  if (!resolved) fail(`${path}: "${field}" references $${name} but that env var is not set`);
+  return resolved;
+}
+
 const STEP_KINDS =
-  'goto, fill, click, hover, dblclick, rightclick, select, check, uncheck, upload, scroll, wait, press, expect';
+  'goto, fill, click, hover, dblclick, rightclick, select, check, uncheck, upload, scroll, wait, press, drag, mouse, expect';
 
 export function loadSpec(path: string): Spec {
   const raw = parse(readFileSync(path, 'utf8'));
@@ -41,6 +55,24 @@ export function loadSpec(path: string): Spec {
   if (!Array.isArray(raw.steps) || raw.steps.length === 0) fail(`${path}: "steps" must be a non-empty list`);
   const dialogs = raw.dialogs ?? 'accept';
   if (dialogs !== 'accept' && dialogs !== 'dismiss') fail(`${path}: "dialogs" must be "accept" or "dismiss"`);
+
+  let auth: Spec['auth'];
+  if (raw.auth !== undefined) {
+    if (raw.auth === null || typeof raw.auth !== 'object') fail(`${path}: "auth" must be a mapping`);
+    const a = raw.auth as Record<string, unknown>;
+    if (typeof a.user !== 'string' || !a.user) fail(`${path}: "auth.user" must be a non-empty string`);
+    if (typeof a.pass !== 'string' || !a.pass) fail(`${path}: "auth.pass" must be a non-empty string`);
+    auth = { user: resolveEnvRef(path, 'auth.user', a.user), pass: resolveEnvRef(path, 'auth.pass', a.pass) };
+  }
+
+  let geolocation: Spec['geolocation'];
+  if (raw.geolocation !== undefined) {
+    if (raw.geolocation === null || typeof raw.geolocation !== 'object') fail(`${path}: "geolocation" must be a mapping`);
+    const g = raw.geolocation as Record<string, unknown>;
+    if (typeof g.lat !== 'number') fail(`${path}: "geolocation.lat" must be a number`);
+    if (typeof g.lon !== 'number') fail(`${path}: "geolocation.lon" must be a number`);
+    geolocation = { lat: g.lat, lon: g.lon };
+  }
 
   const steps: Step[] = raw.steps.map((s: unknown, i: number): Step => {
     if (s === null || typeof s !== 'object') fail(`${path}: step ${i} must be a mapping`);
@@ -105,6 +137,21 @@ export function loadSpec(path: string): Spec {
       case 'press':
         if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "press" must be a non-empty string`);
         return { kind: 'press', key: val, optional };
+      case 'drag': {
+        if (val === null || typeof val !== 'object') fail(`${path}: step ${i} "drag" must be a mapping`);
+        const d = val as Record<string, unknown>;
+        if (typeof d.source !== 'string' || !d.source) fail(`${path}: step ${i} "drag.source" must be a non-empty string`);
+        if (typeof d.target !== 'string' || !d.target) fail(`${path}: step ${i} "drag.target" must be a non-empty string`);
+        return { kind: 'drag', source: d.source, target: d.target, optional };
+      }
+      case 'mouse': {
+        if (val === null || typeof val !== 'object') fail(`${path}: step ${i} "mouse" must be a mapping`);
+        const m = val as Record<string, unknown>;
+        // y may be negative — that's the escape hatch for exit-intent triggers past the viewport's top edge.
+        if (typeof m.x !== 'number') fail(`${path}: step ${i} "mouse.x" must be a number`);
+        if (typeof m.y !== 'number') fail(`${path}: step ${i} "mouse.y" must be a number`);
+        return { kind: 'mouse', x: m.x, y: m.y, optional };
+      }
       case 'expect': {
         if (typeof val === 'string' && val) return { kind: 'expect', expectation: val, optional };
         if (val !== null && typeof val === 'object') {
@@ -120,5 +167,5 @@ export function loadSpec(path: string): Spec {
     }
   });
 
-  return { name: raw.name, url: raw.url, dir: dirname(path), dialogs, steps };
+  return { name: raw.name, url: raw.url, dir: dirname(path), dialogs, auth, geolocation, steps };
 }

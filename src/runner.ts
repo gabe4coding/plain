@@ -50,6 +50,10 @@ function label(step: Step): string {
       return `wait "${step.condition}"`;
     case 'press':
       return `press ${step.key}`;
+    case 'drag':
+      return `drag "${step.source}" to "${step.target}"`;
+    case 'mouse':
+      return `mouse to (${step.x}, ${step.y})`;
     case 'expect':
       return step.within ? `expect "${step.expectation}" within "${step.within}"` : `expect "${step.expectation}"`;
   }
@@ -122,6 +126,8 @@ async function resolveLocator(page: Page, kind: CandidateKind, target: string): 
   };
 }
 
+const MAX_EVENTS = 30; // ponytail: cap what's sent to Jev as `events` — a long spec shouldn't grow this unbounded
+
 export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: number }): Promise<TestResult> {
   const browser = await chromium.launch({ headless: !opts.headed });
   const steps: StepResult[] = [];
@@ -130,27 +136,59 @@ export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: numb
   let overall: Status = 'pass';
 
   try {
+    const contextOptions: Parameters<typeof browser.newContext>[0] = {};
+    if (spec.auth) contextOptions.httpCredentials = { username: spec.auth.user, password: spec.auth.pass };
+    if (spec.geolocation) {
+      contextOptions.geolocation = { latitude: spec.geolocation.lat, longitude: spec.geolocation.lon };
+      contextOptions.permissions = ['geolocation'];
+    }
+    const context = await browser.newContext(contextOptions);
+
     // `page` is the *active* page — a popup can replace it mid-run (see the 'popup' handler below),
     // so every step below must read this variable rather than capturing the initial page.
-    let page = await browser.newPage();
+    let page = await context.newPage();
     page.setDefaultTimeout(opts.timeout);
 
     const acceptDialogs = spec.dialogs !== 'dismiss';
     let pendingNotes: string[] = [];
+    // Visible to Jev on every `expect`/`wait` (see the `events` field passed to judge() below), so
+    // "a JavaScript error happened" or "a file was downloaded" become answerable from state Jev sees.
+    const events: string[] = [];
 
-    // ponytail: registered once, on the initial page, per the spec — good enough for one popup/dialog
-    // per run; a dialog firing on a *second* popup would be missed, add a per-page listener if that's needed.
-    page.on('dialog', async (dialog) => {
-      pendingNotes.push(`dialog(${dialog.type()}): "${dialog.message()}" → ${acceptDialogs ? 'accepted' : 'dismissed'}`);
-      if (acceptDialogs) await dialog.accept();
-      else await dialog.dismiss();
-    });
-    page.on('popup', async (popup) => {
-      popup.setDefaultTimeout(opts.timeout);
-      await popup.waitForLoadState('load').catch(() => {});
-      pendingNotes.push(`→ switched to new tab ${popup.url()}`);
-      page = popup;
-    });
+    function note(msg: string): void {
+      pendingNotes.push(msg);
+      events.push(msg);
+      if (events.length > MAX_EVENTS) events.shift();
+    }
+
+    // Registered on the initial page and, from the 'popup' handler below, on every popup that becomes
+    // active — fixes the earlier limitation where only the first page had listeners.
+    function attach(p: Page): void {
+      p.on('dialog', async (dialog) => {
+        note(`dialog(${dialog.type()}): "${dialog.message()}" → ${acceptDialogs ? 'accepted' : 'dismissed'}`);
+        if (acceptDialogs) await dialog.accept();
+        else await dialog.dismiss();
+      });
+      p.on('popup', async (popup) => {
+        popup.setDefaultTimeout(opts.timeout);
+        await popup.waitForLoadState('load').catch(() => {});
+        note(`→ switched to new tab ${popup.url()}`);
+        attach(popup);
+        page = popup;
+      });
+      p.on('download', async (download) => {
+        const dir = path.join(os.tmpdir(), 'jev-e2e', 'downloads');
+        fs.mkdirSync(dir, { recursive: true });
+        const dest = path.join(dir, download.suggestedFilename());
+        await download.saveAs(dest);
+        note(`download: "${download.suggestedFilename()}" saved to ${dest}`);
+      });
+      p.on('pageerror', (err) => note(`pageerror: ${err.message}`));
+      p.on('console', (msg) => {
+        if (msg.type() === 'error') note(`console.error: ${msg.text()}`);
+      });
+    }
+    attach(page);
 
     for (const step of spec.steps) {
       pendingNotes = [];
@@ -163,6 +201,40 @@ export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: numb
           result = { step: stepLabel, status: 'pass' };
         } else if (step.kind === 'press') {
           await mayNavigate(page, () => page.keyboard.press(step.key));
+          result = { step: stepLabel, status: 'pass' };
+        } else if (step.kind === 'drag') {
+          const rs = await resolveLocator(page, 'click', step.source);
+          if (rs.usedJev) {
+            jevCalls++;
+            totalTokens += rs.tokens;
+          }
+          if (!rs.locator) {
+            result = { step: stepLabel, status: 'inconclusive', detail: rs.detail };
+          } else {
+            const rt = await resolveLocator(page, 'click', step.target);
+            if (rt.usedJev) {
+              jevCalls++;
+              totalTokens += rt.tokens;
+            }
+            if (!rt.locator) {
+              result = { step: stepLabel, status: 'inconclusive', detail: rt.detail };
+            } else {
+              // ponytail: locator.dragTo() only synthesizes mouse events. Sites whose drag-and-drop
+              // is wired to native HTML5 dragstart/dragover/drop (e.g. the-internet's
+              // /drag_and_drop) never see it, so the swap silently doesn't happen. Use the manual
+              // hover/mousedown/hover/hover/mouseup sequence Playwright's own docs recommend for
+              // that case instead — there's no cheap, site-agnostic way to tell from inside this
+              // generic step whether dragTo() actually took visual effect.
+              await rs.locator.hover();
+              await page.mouse.down();
+              await rt.locator.hover();
+              await rt.locator.hover();
+              await page.mouse.up();
+              result = { step: stepLabel, status: 'pass', detail: `${rs.detail} → ${rt.detail}` };
+            }
+          }
+        } else if (step.kind === 'mouse') {
+          await page.mouse.move(step.x, step.y);
           result = { step: stepLabel, status: 'pass' };
         } else if (step.kind === 'click') {
           const r = await resolveLocator(page, 'click', step.target);
@@ -294,7 +366,7 @@ export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: numb
               await settle(page).catch(() => {});
               const snap = await snapshot(page);
               const { url, title, aria } = snap;
-              const { probability, tokens } = await judge({ url, title, aria }, step.condition);
+              const { probability, tokens } = await judge({ url, title, aria, events }, step.condition);
               jevCalls++;
               totalTokens += tokens;
               polls++;
@@ -327,7 +399,7 @@ export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: numb
           await settle(page).catch(() => {}); // SPA route changes resolve 'load' instantly; wait for the content
           const judgeSnap = async (snap: Snapshot): Promise<StepResult> => {
             const { url, title, aria } = snap;
-            const { probability, tokens } = await judge({ url, title, aria }, step.expectation);
+            const { probability, tokens } = await judge({ url, title, aria, events }, step.expectation);
             jevCalls++;
             totalTokens += tokens;
             const status = decide(probability, 'expect');
