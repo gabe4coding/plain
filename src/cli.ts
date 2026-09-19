@@ -2,9 +2,20 @@
 import { parseArgs } from 'node:util';
 import { loadSpec } from './spec.js';
 import { runSpec } from './runner.js';
+import { selectProvider, GATEWAY_MODEL, TYPESAFE_MODEL } from './jev.js';
 
-if (!process.env.AI_GATEWAY_API_KEY) {
-  console.error('AI_GATEWAY_API_KEY is not set. Jev needs it to answer questions — export it before running jev-e2e.');
+// ponytail: cwd .env only; pass --env-file for another path
+try {
+  process.loadEnvFile();
+} catch {
+  /* no .env — fine */
+}
+
+try {
+  const provider = selectProvider();
+  console.error(`jev-e2e: Jev via ${provider} (${provider === 'typesafe' ? TYPESAFE_MODEL : GATEWAY_MODEL})`);
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
   process.exit(2);
 }
 

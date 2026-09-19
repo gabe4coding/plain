@@ -5,7 +5,10 @@ Jev (an evaluation model via the Vercel AI SDK) only answers two things: which
 element a natural-language step means, and whether a natural-language
 expectation holds.
 
-Install: `npm i && npx playwright install chromium`. Env: `AI_GATEWAY_API_KEY` must be set.
+Install: `npm i && npx playwright install chromium`. Env: set `TYPESAFE_API_KEY` (TypeSafe direct,
+default) or `AI_GATEWAY_API_KEY` (Vercel AI Gateway) — `TYPESAFE_API_KEY` wins when both are set,
+or force one with `JEV_PROVIDER=typesafe|gateway`. Either can live in a `.env` file next to where
+you run the CLI (copy `.env.example`) instead of the real environment.
 Run: `npm run build && node dist/cli.js examples/login.yaml [--headless] [--timeout 15000]` — the browser is visible by default; `--headless` hides it.
 
 ```yaml

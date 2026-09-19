@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide } from './jev.js';
+import { decide, selectProvider } from './jev.js';
 
 test('expect: high probability passes', () => {
   assert.equal(decide(0.95, 'expect'), 'pass');
@@ -26,4 +26,36 @@ test('pick: probability at or above 0.5 accepts', () => {
 
 test('pick: probability below 0.5 is inconclusive', () => {
   assert.equal(decide(0.49, 'pick'), 'inconclusive');
+});
+
+test('selectProvider: only TYPESAFE_API_KEY set → typesafe', () => {
+  assert.equal(selectProvider({ TYPESAFE_API_KEY: 'k' }), 'typesafe');
+});
+
+test('selectProvider: only AI_GATEWAY_API_KEY set → gateway', () => {
+  assert.equal(selectProvider({ AI_GATEWAY_API_KEY: 'k' }), 'gateway');
+});
+
+test('selectProvider: both keys set → typesafe wins', () => {
+  assert.equal(selectProvider({ TYPESAFE_API_KEY: 'k', AI_GATEWAY_API_KEY: 'k' }), 'typesafe');
+});
+
+test('selectProvider: JEV_PROVIDER=gateway with both keys → gateway', () => {
+  assert.equal(
+    selectProvider({ JEV_PROVIDER: 'gateway', TYPESAFE_API_KEY: 'k', AI_GATEWAY_API_KEY: 'k' }),
+    'gateway'
+  );
+});
+
+test('selectProvider: JEV_PROVIDER=bogus throws', () => {
+  assert.throws(() => selectProvider({ JEV_PROVIDER: 'bogus' }), /JEV_PROVIDER/);
+});
+
+test('selectProvider: no keys throws naming both variables', () => {
+  assert.throws(() => selectProvider({}), /TYPESAFE_API_KEY/);
+  assert.throws(() => selectProvider({}), /AI_GATEWAY_API_KEY/);
+});
+
+test('selectProvider: JEV_PROVIDER=typesafe without its key throws naming TYPESAFE_API_KEY', () => {
+  assert.throws(() => selectProvider({ JEV_PROVIDER: 'typesafe', AI_GATEWAY_API_KEY: 'k' }), /TYPESAFE_API_KEY/);
 });

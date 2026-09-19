@@ -12,6 +12,7 @@
     "example": "npm run build && node dist/cli.js examples/*.yaml"
   },
   "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0",
     "ai": "^7.0.107",
     "playwright": "^1.63.0",
     "yaml": "^2.9.1"
