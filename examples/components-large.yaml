@@ -1,0 +1,8 @@
+name: large DOM aria cap
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /large
+  # Raw aria here is ~69k chars; the 60k cap still exceeds the model's token limit on this dense table
+  # (aria labels repeat every cell), so judge() halves it to ~30k (≈ row 22). Row 15 sits past the old
+  # 20k cap and inside what the model accepts — proves the raised cap plus the halving fallback.
+  - expect: "the large table contains a cell with the text '15.15'"

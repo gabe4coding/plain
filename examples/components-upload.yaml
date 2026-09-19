@@ -1,0 +1,7 @@
+name: file upload
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /upload
+  - upload: { target: "the file chooser input", files: ["fixtures/hello.txt"] }
+  - click: "the Upload button"
+  - expect: "the page confirms the file was uploaded"

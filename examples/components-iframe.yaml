@@ -1,0 +1,10 @@
+name: iframe candidate discovery
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /iframe
+  - expect: "the rich text editor iframe shows the placeholder text 'Your content goes here.'"
+  # TinyMCE's shared cloud demo key sometimes runs out of monthly editor loads, which makes the
+  # editor read-only (contenteditable=false) — no fill candidate exists in that state. Optional so
+  # that doesn't fail the whole spec; see the report for what was actually observed.
+  - fill: { target: "the rich text editor content area inside the iframe", value: "Hello from jev-e2e" }
+    optional: true

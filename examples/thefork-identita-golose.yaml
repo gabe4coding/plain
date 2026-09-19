@@ -1,0 +1,16 @@
+name: find Identità Golose on TheFork and open the booking flow
+url: https://www.preprod.thefork.co.uk
+steps:
+  - goto: /
+  - click: "the 'accept all' button of a cookie consent banner or popup, if such a banner is open (a footer 'Cookie consent' settings link does not count)"
+    optional: true
+  - fill: { target: "the search input for a cuisine or restaurant name (not the location / where field)", value: "Identità Golose" }
+  - click: "the autocomplete suggestion for the restaurant named Identità Golose"
+  - expect: "this is the restaurant detail page of Identità Golose (not the homepage, not a search results list)"
+  - click: "the date selector button of the booking module"
+  - click: "the earliest day in the calendar that is after today and not disabled"
+  - click: "the time selector of the booking module"
+  - click: "the earliest time-of-day option in the open time dropdown (the button whose label is the smallest clock time, e.g. 12:30)"
+  # On TheFork, choosing the party size is what starts the booking: there is no separate "Book" button.
+  - click: "the option for 2 guests in the party-size (guests / seats) selector"
+  - expect: "the booking checkout has started: the page asks for the guest's email or personal details to complete the reservation"

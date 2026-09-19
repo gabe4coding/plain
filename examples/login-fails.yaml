@@ -1,0 +1,8 @@
+name: login fails with wrong password
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /login
+  - fill: { target: "the username field", value: "tomsmith" }
+  - fill: { target: "the password field", value: "wrong" }
+  - click: "the login button"
+  - expect: "the user is logged in and sees a success message"

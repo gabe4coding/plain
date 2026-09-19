@@ -1,0 +1,9 @@
+name: js alerts (dialogs dismiss)
+url: https://the-internet.herokuapp.com
+dialogs: dismiss
+steps:
+  - goto: /javascript_alerts
+  - click: "the Click for JS Alert button"
+  - expect: "the result text says the alert was successfully clicked"
+  - click: "the Click for JS Confirm button"
+  - expect: "the result text says Cancel was clicked"

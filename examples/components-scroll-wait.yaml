@@ -1,0 +1,16 @@
+name: infinite scroll and dynamic loading waits
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /infinite_scroll
+  # jscroll only fetches its next page when a *new* scroll event lands near the bottom, so one
+  # scroll only loads one more page — repeat it to clear "more than five paragraphs".
+  - scroll: bottom
+  - scroll: bottom
+  - scroll: bottom
+  - scroll: bottom
+  - scroll: bottom
+  - scroll: bottom
+  - wait: "the page shows a very long, continuous block of lorem-ipsum filler text — clearly the length of six or more typical paragraphs, not just one or two"
+  - goto: /dynamic_loading/2
+  - click: "the Start button"
+  - wait: "a heading that says 'Hello World!' is now shown on the page"

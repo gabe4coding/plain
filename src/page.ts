@@ -1,0 +1,235 @@
+import type { Page, Frame, Locator } from 'playwright';
+
+export interface Candidate {
+  id: number;
+  desc: string;
+  frameIndex: number;
+}
+
+export type CandidateKind = 'click' | 'hover' | 'fill' | 'select' | 'check' | 'upload' | 'region';
+
+const CLICK_SELECTOR =
+  'a, button, input, select, textarea, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=radio], [role=option], [role=listbox] li, [role=menuitemradio], [onclick]';
+const FILL_SELECTOR =
+  'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea, [contenteditable=true]';
+const SELECT_SELECTOR = 'select';
+const CHECK_SELECTOR = 'input[type=checkbox], input[type=radio], [role=checkbox], [role=radio], [role=switch]';
+const UPLOAD_SELECTOR = 'input[type=file]';
+const REGION_SELECTOR =
+  'main, section, article, dialog, nav, header, footer, aside, form, table, [role=region], [role=dialog], [role=main], [role=tabpanel], [role=list]';
+
+const SELECTORS: Record<CandidateKind, string> = {
+  click: CLICK_SELECTOR,
+  hover: `${CLICK_SELECTOR}, img, svg, figure`, // hover targets are often plain images with no clickable signal
+  fill: FILL_SELECTOR,
+  select: SELECT_SELECTOR,
+  check: CHECK_SELECTOR,
+  upload: UPLOAD_SELECTOR,
+  region: REGION_SELECTOR,
+};
+
+// Hard ceiling: a Jev Choice question accepts at most 255 options, one of which is `none`. Selector-matched
+// elements are listed first, cursor:pointer extras last, so a dense page loses extras, not real controls.
+// ponytail: no pagination — if the real controls alone exceed this, target the step with css= instead.
+const MAX_CANDIDATES = 254;
+
+/** Wait until the DOM stops mutating for `quietMs` (debounced autocompletes, modals), giving up after `maxMs`. */
+export function settle(page: Page, quietMs = 500, maxMs = 3000): Promise<void> {
+  return page.evaluate(
+    ({ quietMs, maxMs }) =>
+      new Promise<void>((resolve) => {
+        let timer = setTimeout(done, quietMs);
+        const obs = new MutationObserver(() => {
+          clearTimeout(timer);
+          timer = setTimeout(done, quietMs);
+        });
+        const cap = setTimeout(done, maxMs);
+        obs.observe(document.body, { childList: true, subtree: true, attributes: true });
+        function done() {
+          obs.disconnect();
+          clearTimeout(timer);
+          clearTimeout(cap);
+          resolve();
+        }
+      }),
+    { quietMs, maxMs }
+  );
+}
+
+/**
+ * Runs inside the page/frame. Walks the whole document — including open shadow roots — collecting
+ * elements that match `selector`. For `includeExtras` (the `click` kind), also collects React-style
+ * clickables that match no selector: cursor:pointer, [tabindex], [contenteditable], summary, label.
+ * Selector-matched elements are ordered first (DOM order), extras after, then the list is capped.
+ */
+function collectCandidatesInPage(args: {
+  selector: string;
+  includeExtras: boolean;
+  skipVisibility: boolean;
+  max: number;
+  startId: number;
+}): string[] {
+  const { selector, includeExtras, skipVisibility, max, startId } = args;
+
+  function visible(el: Element): boolean {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    const style = window.getComputedStyle(el);
+    return style.visibility !== 'hidden' && style.display !== 'none';
+  }
+  const enabled = (el: Element) => !(el as HTMLButtonElement).disabled && el.getAttribute('aria-disabled') !== 'true';
+  function truncate(s: string, n: number): string {
+    s = s.trim().replace(/\s+/g, ' ');
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  }
+  function describe(el: Element): string {
+    const tag = el.tagName.toLowerCase();
+    const type = el.getAttribute('type');
+    const role = el.getAttribute('role');
+    let head = tag;
+    if (type) head += `[type=${type}]`;
+    if (role) head += `[role=${role}]`;
+    const parts: string[] = [head];
+
+    const text = (el as HTMLElement).innerText ?? el.textContent ?? '';
+    const value = (el as HTMLInputElement).value;
+    if (text && text.trim()) parts.push(`"${truncate(text, 60)}"`);
+    else if (value) parts.push(`value="${truncate(value, 60)}"`);
+
+    const ariaLabel = el.getAttribute('aria-label');
+    if (ariaLabel) parts.push(`aria-label="${truncate(ariaLabel, 60)}"`);
+    const placeholder = el.getAttribute('placeholder');
+    if (placeholder) parts.push(`placeholder="${truncate(placeholder, 60)}"`);
+    const alt = el.getAttribute('alt');
+    if (alt) parts.push(`alt="${truncate(alt, 60)}"`);
+    const title = el.getAttribute('title');
+    if (title) parts.push(`title="${truncate(title, 60)}"`);
+    const name = el.getAttribute('name');
+    if (name) parts.push(`name="${name}"`);
+    const id = el.getAttribute('id');
+    if (id) parts.push(`id="${id}"`);
+    const href = el.getAttribute('href');
+    if (href) {
+      try {
+        parts.push(`href=${new URL(href, location.href).pathname}`);
+      } catch {
+        parts.push(`href=${href}`);
+      }
+    }
+    return parts.join(' ');
+  }
+
+  const EXTRA_SELECTOR = '[tabindex]:not([tabindex="-1"]), [contenteditable=true], summary, label';
+  const matched: Element[] = [];
+  const extras: Element[] = [];
+
+  // `cursor` is inherited: only the outermost pointer element is the clickable (the card), not every
+  // span/svg/path inside it — those would only bloat the list toward the 255-option ceiling.
+  const isPointer = (el: Element) => window.getComputedStyle(el).cursor === 'pointer';
+  function visit(el: Element) {
+    if (el.hasAttribute('data-jev-id')) el.removeAttribute('data-jev-id');
+    if (el.matches(selector)) matched.push(el);
+    else if (includeExtras && !(el instanceof SVGElement) && (el.matches(EXTRA_SELECTOR) || (isPointer(el) && !(el.parentElement && isPointer(el.parentElement))))) {
+      extras.push(el);
+    }
+    if (el.shadowRoot) for (const c of Array.from(el.shadowRoot.children)) visit(c);
+    for (const c of Array.from(el.children)) visit(c);
+  }
+  if (document.body) for (const c of Array.from(document.body.children)) visit(c);
+
+  const keep = (el: Element) => (skipVisibility || visible(el)) && enabled(el);
+  const final = [...matched.filter(keep), ...extras.filter(keep)].slice(0, max);
+  const descs = final.map((el, i) => {
+    el.setAttribute('data-jev-id', String(startId + i));
+    return describe(el);
+  });
+  // Identical descriptions (three "img alt=User Avatar", two bare checkboxes) get an ordinal in DOM order,
+  // so "the first …" / "the leftmost …" has exactly one answer.
+  const counts = new Map<string, number>();
+  for (const d of descs) counts.set(d, (counts.get(d) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return descs.map((d) => {
+    if ((counts.get(d) ?? 0) < 2) return d;
+    const n = (seen.get(d) ?? 0) + 1;
+    seen.set(d, n);
+    return `${d} #${n}`;
+  });
+}
+
+function frameLabel(frame: Frame): string {
+  const name = frame.name();
+  if (name) return name;
+  try {
+    return new URL(frame.url()).pathname || frame.url();
+  } catch {
+    return frame.url();
+  }
+}
+
+export async function candidates(page: Page, kind: CandidateKind): Promise<Candidate[]> {
+  const selector = SELECTORS[kind];
+  const includeExtras = kind === 'click' || kind === 'hover';
+  const skipVisibility = kind === 'upload';
+  const out: Candidate[] = [];
+  const frames = page.frames();
+
+  for (let frameIndex = 0; frameIndex < frames.length && out.length < MAX_CANDIDATES; frameIndex++) {
+    const frame = frames[frameIndex];
+    const startId = out.length;
+    let descs: string[];
+    try {
+      descs = await frame.evaluate(collectCandidatesInPage, {
+        selector,
+        includeExtras,
+        skipVisibility,
+        max: MAX_CANDIDATES - out.length,
+        startId,
+      });
+    } catch {
+      continue; // detached or cross-origin frame — skip, never fatal
+    }
+    const prefix = frameIndex === 0 ? '' : `[iframe ${frameLabel(frame)}] `;
+    for (const desc of descs) out.push({ id: out.length, desc: prefix + desc, frameIndex });
+  }
+  return out;
+}
+
+export function elementById(page: Page, id: number, frameIndex = 0): Locator {
+  return page.frames()[frameIndex].locator(`[data-jev-id="${id}"]`);
+}
+
+export interface Snapshot {
+  url: string;
+  title: string;
+  aria: string;
+  truncated: boolean;
+}
+
+const ARIA_MAX_CHARS = 60_000; // ponytail: hard truncate, no smart summarization — ≈15k tokens, ≈$0.0006/call
+
+function capAria(s: string): { aria: string; truncated: boolean } {
+  return s.length > ARIA_MAX_CHARS ? { aria: s.slice(0, ARIA_MAX_CHARS), truncated: true } : { aria: s, truncated: false };
+}
+
+export async function snapshot(page: Page): Promise<Snapshot> {
+  const [title, bodyAria] = await Promise.all([page.title(), page.locator('body').ariaSnapshot()]);
+  let full = bodyAria;
+  const frames = page.frames();
+  for (let i = 1; i < frames.length; i++) {
+    try {
+      const frameAria = await frames[i].locator('body').ariaSnapshot();
+      full += `\n--- iframe ${frameLabel(frames[i])} ---\n${frameAria}`;
+    } catch {
+      // detached or cross-origin — skip, never fatal
+    }
+  }
+  const { aria, truncated } = capAria(full);
+  return { url: page.url(), title, aria, truncated };
+}
+
+/** Same as `snapshot()` but scoped to one region locator, for `expect: { that, within }`. */
+export async function snapshotRegion(page: Page, locator: Locator): Promise<Snapshot> {
+  const [title, ariaFull] = await Promise.all([page.title(), locator.ariaSnapshot()]);
+  const { aria, truncated } = capAria(ariaFull);
+  return { url: page.url(), title, aria, truncated };
+}

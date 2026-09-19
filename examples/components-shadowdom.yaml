@@ -1,0 +1,9 @@
+name: shadow dom content
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /shadowdom
+  # This page's shadow root only wraps a <style> and <p><slot></slot></p>; both <my-paragraph>
+  # instances override the slot's fallback text, so there's no clickable element inside either
+  # shadow root — nothing to click here. The expectation below still proves candidate/snapshot
+  # code walks into the shadow root: the <p> that renders this text is created by attachShadow().
+  - expect: "the page displays the text \"Let's have some different text!\""

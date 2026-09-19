@@ -1,0 +1,14 @@
+name: dropdown, checkboxes and hovers
+url: https://the-internet.herokuapp.com
+steps:
+  - goto: /dropdown
+  - select: { target: "the dropdown list", value: "Option 2" }
+  - expect: "the dropdown's selected option is Option 2"
+  - goto: /checkboxes
+  - check: "the first checkbox, not the second"
+  - uncheck: "the second checkbox, not the first"
+  - expect: { that: "the first checkbox is checked and the second checkbox is unchecked", within: "the checkboxes form" }
+  - goto: /hovers
+  - hover: "the first user's avatar image (the leftmost one)"
+  # phrase claims the way the accessibility tree names things: "caption" scored 0.86, "heading" 0.97
+  - expect: "there is a heading with the text 'name: user1'"

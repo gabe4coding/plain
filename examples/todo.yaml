@@ -1,0 +1,7 @@
+name: add a todo
+url: https://demo.playwright.dev/todomvc
+steps:
+  - goto: /
+  - fill: { target: "the new todo input", value: "buy milk" }
+  - press: Enter
+  - expect: "a todo item named 'buy milk' is listed"
