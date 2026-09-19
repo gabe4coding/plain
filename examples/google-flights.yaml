@@ -1,0 +1,43 @@
+name: "Google Flights: search Paris → Rome round trip"
+url: https://www.google.com/travel/flights
+steps:
+  - goto: https://www.google.com/travel/flights
+  # EU consent interstitial; absent outside the EU or with a warmed profile.
+  - click: the Accept all button
+    optional: true
+  - expect:
+      - a "Where from?" combobox is shown
+      - a "Where to?" combobox is shown
+  - fill:
+      target: the "Where from?" combobox (not the "Where to?" one)
+      value: Paris
+  # Suggestions list both the city and its airports; the city row is the stable one.
+  - click: the "Paris" city option in the suggestions list (not an airport row)
+  - fill:
+      target: the "Where to?" combobox (not the "Where from?" one)
+      value: Rome
+  - click: the "Rome, Italy" city option in the suggestions list (not an airport row)
+  # Opens the calendar dialog. Day cells expose only the day number to Jev, so dates are
+  # typed into the dialog's textboxes and committed with Enter instead of clicked.
+  # ponytail: hardcoded dates, bump them when they fall in the past.
+  - click: the "Departure" date textbox
+  - fill:
+      target: the empty "Departure" textbox inside the calendar dialog (not the "Return" one)
+      value: Dec 15
+  - press: Enter
+  - fill:
+      target: the empty "Return" textbox inside the calendar dialog, next to the "Departure" textbox that shows Tue, Dec 15
+      value: Dec 22
+  - press: Enter
+  - expect:
+      - the "Departure" textbox shows Tue, Dec 15
+      - the "Return" textbox shows Tue, Dec 22
+  # Done sits past Jev's candidate cap in the long calendar tree, so css is the only reliable pick.
+  # Its aria-label is "Done. " once both dates are set and "Done. Search for ..." otherwise; the trailing
+  # period excludes two icon buttons labelled plain "Done" that appear in the headless layout.
+  - click: css=[role=dialog] button[aria-label^="Done."]
+  - click: the "Search" button below the flight search form
+  - wait: a heading with the text "Top departing flights" is shown
+  - expect:
+      - a heading with the text "Search results" is shown
+      - the text "Track prices from Paris to Rome" is shown
