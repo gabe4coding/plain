@@ -1,0 +1,8 @@
+{
+  "name": "jev-e2e",
+  "description": "YAML e2e tests where Playwright acts and the Jev model decides; MCP server for agents to drive a browser step by step",
+  "version": "0.1.0",
+  "author": {
+    "name": "Gabriele Pavanello"
+  }
+}

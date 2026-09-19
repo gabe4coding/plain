@@ -4,7 +4,7 @@
   "description": "YAML-driven end-to-end browser tests, with Jev resolving natural-language steps and expectations",
   "type": "module",
   "bin": {
-    "jev-e2e": "dist/cli.js"
+    "jev-e2e": "bin/jev-e2e.mjs"
   },
   "scripts": {
     "build": "tsc",

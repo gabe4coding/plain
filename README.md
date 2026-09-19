@@ -14,6 +14,7 @@ below and this file's phrasing advice were tuned against it. On the TypeSafe pat
 client handles request timeouts and retries (429/5xx, honoring `Retry-After`); the Vercel AI
 Gateway path keeps its own retry loop since that SDK's backoff can't outlast a rate-limit window.
 Run: `npm run build && node dist/cli.js examples/login.yaml [--headless] [--timeout 15000]` — the browser is visible by default; `--headless` hides it.
+`dist/` is committed for the plugin — run `npm run build` before committing changes under `src/`.
 
 ```yaml
 name: login works
@@ -109,3 +110,21 @@ as above, returned with `status`, `detail`, `notes`, `url`, `jevTokens`); `find 
 pick; `snapshot {maxChars}` returns the aria tree as an escape hatch when rephrasing does not help; `save {path,
 name}` writes everything run so far as a spec the batch runner replays. Rejected picks come back `inconclusive`
 with the top guesses in `detail`, so the agent can rephrase and retry.
+
+### Install as a Claude Code plugin
+
+This repo is also a Claude Code plugin: it ships the MCP server (root `.mcp.json`) and the
+`authoring-jev-e2e-specs` skill. The built CLI is committed, and on first start the plugin installs its own npm
+dependencies and Chromium (progress on stderr). That first MCP connection can take a minute or two; if it times
+out, `/mcp` reconnects once the install is done.
+
+The API key must be in Claude Code's environment, which the MCP server inherits: put `TYPESAFE_API_KEY` (or
+`AI_GATEWAY_API_KEY`) in the `env` block of `~/.claude/settings.json`, or export it in your shell profile. The
+`.env` file is a convenience of the standalone CLI, not the way to configure the plugin.
+
+Install with `/plugin marketplace add /path/to/jev-e2e` then `/plugin install jev-e2e@jev-e2e-marketplace` (a
+git URL works the same once the repo has a remote). To try a clone without installing, run
+`claude --plugin-dir /path/to/jev-e2e` from any directory other than the clone itself: inside the clone, Claude
+Code also loads the same `.mcp.json` as a project server, where `${CLAUDE_PLUGIN_ROOT}` is undefined, and that
+duplicate fails. If you registered the server by hand with `claude mcp add jev-e2e …`, remove it: a manual
+server with the same name silently replaces the plugin's.

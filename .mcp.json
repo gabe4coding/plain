@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "jev-e2e": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/jev-e2e.mjs", "--headless", "mcp"]
+    }
+  }
+}

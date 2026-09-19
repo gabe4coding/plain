@@ -77,7 +77,7 @@ export async function serveMcp(opts: { headed: boolean; timeout: number }): Prom
     } catch (err) {
       result = { step: label(parsed), status: 'error' as const, detail: err instanceof Error ? err.message : String(err) };
     }
-    transcript.push(step);
+    if (result.status === 'pass') transcript.push(step); // failed attempts are exploration, not spec
     return ok({ status: result.status, detail: result.detail, notes: session.drainNotes(), url: session.ctx.page.url(), jevTokens: totalTokens - before });
   });
 
@@ -112,7 +112,7 @@ export async function serveMcp(opts: { headed: boolean; timeout: number }): Prom
 
   server.registerTool(
     'save',
-    { description: 'Save the steps run so far in this session as a YAML spec the batch runner can replay.', inputSchema: { path: z.string(), name: z.string().optional() } },
+    { description: 'Save the steps that passed so far in this session as a YAML spec the batch runner can replay (failed or inconclusive attempts are left out).', inputSchema: { path: z.string(), name: z.string().optional() } },
     async ({ path, name }) => {
       const yaml = stringify({ name: name ?? spec.name, url: spec.url, steps: transcript });
       const filePath = resolve(path);
