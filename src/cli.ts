@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 import { loadSpec } from './spec.js';
 import { runSpec } from './runner.js';
-import { selectProvider, GATEWAY_MODEL, TYPESAFE_MODEL } from './jev.js';
+import { provider, MODEL_BY_PROVIDER } from './jev.js';
 
 // ponytail: cwd .env only; pass --env-file for another path
 try {
@@ -12,8 +12,8 @@ try {
 }
 
 try {
-  const provider = selectProvider();
-  console.error(`jev-e2e: Jev via ${provider} (${provider === 'typesafe' ? TYPESAFE_MODEL : GATEWAY_MODEL})`);
+  const p = provider();
+  console.error(`jev-e2e: Jev via ${p} (${MODEL_BY_PROVIDER[p]})`);
 } catch (err) {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(2);

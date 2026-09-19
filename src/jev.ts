@@ -2,10 +2,12 @@ import { experimental_evaluate as evaluate } from 'ai';
 import { TypeSafeClient, noul, choice } from '@typesafe-ai/sdk';
 import type { Candidate } from './page.js';
 
-export const GATEWAY_MODEL = 'typesafe-ai/jev';
-export const TYPESAFE_MODEL = 'jev-latest';
-
 export type Provider = 'typesafe' | 'gateway';
+
+export const MODEL_BY_PROVIDER: Record<Provider, string> = {
+  typesafe: 'jev-latest',
+  gateway: 'typesafe-ai/jev',
+};
 
 export function selectProvider(env: NodeJS.ProcessEnv = process.env): Provider {
   const requested = env.JEV_PROVIDER;
@@ -33,7 +35,7 @@ export function selectProvider(env: NodeJS.ProcessEnv = process.env): Provider {
 let cachedProvider: Provider | undefined;
 let typesafeClient: TypeSafeClient | undefined;
 
-function provider(): Provider {
+export function provider(): Provider {
   if (!cachedProvider) cachedProvider = selectProvider();
   return cachedProvider;
 }
@@ -50,6 +52,12 @@ const RATE_LIMIT_BACKOFF_MS = 65_000;
 
 const UPSTREAM_BACKOFF_MS = 10_000; // gateway 5xx "temporarily unavailable": the SDK's own retries are seconds apart
 
+// ponytail: TypeSafeClient's APIError exposes `status`; cast past the plain Error type to read it.
+function httpStatus(err: unknown): number | undefined {
+  const status = (err as any)?.status;
+  return typeof status === 'number' ? status : undefined;
+}
+
 async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
   // Upstream 5xx cluster on the largest payloads (≈15–20k tokens), so allow three retries with doubling
   // backoff (10s, 20s, 40s); a rate limit gets one wait of a full window.
@@ -58,8 +66,7 @@ async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
       return await fn();
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
-      // ponytail: TypeSafeClient's APIError exposes `status`; cast past the plain Error type to read it.
-      const status = (err as any)?.status;
+      const status = httpStatus(err);
       const rateLimited = /rate.?limit/i.test(msg) || status === 429;
       const upstream = /temporarily unavailable|internal server/i.test(msg) || (typeof status === 'number' && status >= 500);
       if (rateLimited && attempt === 0) await new Promise((r) => setTimeout(r, RATE_LIMIT_BACKOFF_MS));
@@ -69,13 +76,12 @@ async function withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-// A too-long TypeSafe body isn't confirmed against a live call (no key available while writing this);
-// matching on 422 + keyword is a best-effort guess — see RISKS in the handoff report.
-function isTooLong(err: unknown): boolean {
+// The 422 body shape for a too-long TypeSafe request is a best-effort guess, not confirmed against
+// a live too-long TypeSafe response — matching on status + keyword is what's checkable without one.
+export function isTooLong(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (/max_tokens_exceeded/.test(err.message)) return true;
-  const status = (err as any)?.status;
-  return status === 422 && /max_tokens_exceeded|too (long|large)|token/i.test(err.message);
+  return httpStatus(err) === 422 && /max_tokens_exceeded|too (long|large)|token/i.test(err.message);
 }
 
 interface ChoiceQuestion {
@@ -97,47 +103,65 @@ interface AskResult {
   probability?: number;
 }
 
+// Raw shape an answer comes back in from either backend, before ask() normalizes it.
+interface RawAnswer {
+  choice?: string;
+  probabilities?: Record<string, number>;
+  probability?: number;
+  noul?: number;
+}
+
+async function callGateway(
+  state: unknown,
+  question: ChoiceQuestion | BooleanQuestion
+): Promise<{ answer: RawAnswer; tokens: number }> {
+  const { answers, usage } = await evaluate({
+    model: MODEL_BY_PROVIDER.gateway,
+    // ponytail: state is plain JSON at runtime; the SDK's JSONObject type wants an index
+    // signature that our named interfaces don't declare, so cast past it here.
+    state: state as any,
+    questions: {
+      [question.name]:
+        question.kind === 'choice'
+          ? { type: 'choice', instructions: question.instructions, criteria: question.criteria }
+          : { type: 'boolean', instructions: question.instructions },
+    },
+  });
+  const answer = (answers as Record<string, RawAnswer>)[question.name];
+  return { answer, tokens: usage.totalTokens ?? 0 };
+}
+
+async function callTypesafe(
+  state: unknown,
+  question: ChoiceQuestion | BooleanQuestion
+): Promise<{ answer: RawAnswer; tokens: number }> {
+  const { answers, usage } = await typesafe().systemOne({
+    model: MODEL_BY_PROVIDER.typesafe,
+    state: state as any,
+    questions: {
+      [question.name]:
+        question.kind === 'choice' ? choice(question.instructions, question.criteria) : noul(question.instructions),
+    },
+  });
+  const answer = (answers as Record<string, RawAnswer>)[question.name];
+  return { answer, tokens: usage.input_tokens + usage.output_tokens };
+}
+
 // The one call path both pickElement and judge go through: builds a provider-neutral question,
 // dispatches on the resolved provider, and normalizes the answer shape the two backends disagree on.
 async function ask(state: unknown, question: ChoiceQuestion | BooleanQuestion): Promise<AskResult> {
-  if (provider() === 'gateway') {
-    const { answers, usage } = await withRateLimitRetry(() =>
-      evaluate({
-        model: GATEWAY_MODEL,
-        // ponytail: state is plain JSON at runtime; the SDK's JSONObject type wants an index
-        // signature that our named interfaces don't declare, so cast past it here.
-        state: state as any,
-        questions: {
-          [question.name]:
-            question.kind === 'choice'
-              ? { type: 'choice', instructions: question.instructions, criteria: question.criteria }
-              : { type: 'boolean', instructions: question.instructions },
-        },
-      })
-    );
-    const a = (answers as any)[question.name];
-    const tokens = usage.totalTokens ?? 0;
-    return question.kind === 'choice'
-      ? { tokens, choice: a.choice, probabilities: a.probabilities ?? {} }
-      : { tokens, probability: a.probability };
-  }
-
-  const { answers, usage } = await withRateLimitRetry(() =>
-    typesafe().systemOne({
-      model: TYPESAFE_MODEL,
-      state: state as any,
-      questions: {
-        [question.name]:
-          question.kind === 'choice' ? choice(question.instructions, question.criteria) : noul(question.instructions),
-      },
-    })
+  const { answer, tokens } = await withRateLimitRetry(() =>
+    provider() === 'gateway' ? callGateway(state, question) : callTypesafe(state, question)
   );
-  const a = (answers as any)[question.name];
-  const tokens = usage.input_tokens + usage.output_tokens;
   return question.kind === 'choice'
-    ? { tokens, choice: a.choice, probabilities: a.probabilities ?? {} }
-    : { tokens, probability: a.noul };
+    ? { tokens, choice: answer.choice, probabilities: answer.probabilities ?? {} }
+    : { tokens, probability: answer.probability ?? answer.noul };
 }
+
+// Hard ceiling: a Jev Choice question accepts at most 255 options, one of which is `none`. Selector-matched
+// elements are listed first, cursor:pointer extras last, so a dense page loses extras, not real controls.
+// ponytail: no pagination — if the real controls alone exceed this, target the step with css= instead.
+export const MAX_PICK_CANDIDATES = 254;
 
 export interface PickResult {
   id: number | null;
@@ -169,20 +193,11 @@ export interface JudgeResult {
   tokens: number;
 }
 
+// One-shot: the too-long-state halving retry lives in runner.ts's judgeSnapshot, which knows the
+// Snapshot shape and can re-derive `aria` for the next attempt. Errors here propagate to the caller.
 export async function judge(state: unknown, expectation: string): Promise<JudgeResult> {
-  let s = state as { aria?: string } & Record<string, unknown>;
-  for (;;) {
-    try {
-      const { probability, tokens } = await ask(s, { kind: 'boolean', name: 'holds', instructions: expectation });
-      return { probability: probability ?? 0, tokens };
-    } catch (err) {
-      // A char cap can't guarantee the model's token limit (dense tables ≈ 2x tokens per char): halve and retry.
-      if (!isTooLong(err) || typeof s.aria !== 'string' || s.aria.length < 4000) throw err;
-      const half = s.aria.slice(0, Math.floor(s.aria.length / 2));
-      s = { ...s, aria: half };
-      console.error(`jev-e2e: state too long for the model, aria cut to ${half.length} chars — scope the expect with \`within\` for precision`);
-    }
-  }
+  const { probability, tokens } = await ask(state, { kind: 'boolean', name: 'holds', instructions: expectation });
+  return { probability: probability ?? 0, tokens };
 }
 
 export type Decision = 'pass' | 'fail' | 'inconclusive';

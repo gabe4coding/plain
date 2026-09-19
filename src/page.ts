@@ -28,11 +28,6 @@ const SELECTORS: Record<CandidateKind, string> = {
   region: REGION_SELECTOR,
 };
 
-// Hard ceiling: a Jev Choice question accepts at most 255 options, one of which is `none`. Selector-matched
-// elements are listed first, cursor:pointer extras last, so a dense page loses extras, not real controls.
-// ponytail: no pagination — if the real controls alone exceed this, target the step with css= instead.
-const MAX_CANDIDATES = 254;
-
 /** Wait until the DOM stops mutating for `quietMs` (debounced autocompletes, modals), giving up after `maxMs`. */
 export function settle(page: Page, quietMs = 500, maxMs = 3000): Promise<void> {
   return page.evaluate(
@@ -169,14 +164,14 @@ function frameLabel(frame: Frame): string {
   }
 }
 
-export async function candidates(page: Page, kind: CandidateKind): Promise<Candidate[]> {
+export async function candidates(page: Page, kind: CandidateKind, max: number): Promise<Candidate[]> {
   const selector = SELECTORS[kind];
   const includeExtras = kind === 'click' || kind === 'hover';
   const skipVisibility = kind === 'upload';
   const out: Candidate[] = [];
   const frames = page.frames();
 
-  for (let frameIndex = 0; frameIndex < frames.length && out.length < MAX_CANDIDATES; frameIndex++) {
+  for (let frameIndex = 0; frameIndex < frames.length && out.length < max; frameIndex++) {
     const frame = frames[frameIndex];
     const startId = out.length;
     let descs: string[];
@@ -185,7 +180,7 @@ export async function candidates(page: Page, kind: CandidateKind): Promise<Candi
         selector,
         includeExtras,
         skipVisibility,
-        max: MAX_CANDIDATES - out.length,
+        max: max - out.length,
         startId,
       });
     } catch {
@@ -214,25 +209,30 @@ function capAria(s: string): { aria: string; truncated: boolean } {
   return s.length > ARIA_MAX_CHARS ? { aria: s.slice(0, ARIA_MAX_CHARS), truncated: true } : { aria: s, truncated: false };
 }
 
-export async function snapshot(page: Page): Promise<Snapshot> {
-  const [title, bodyAria] = await Promise.all([page.title(), page.locator('body').ariaSnapshot()]);
-  let full = bodyAria;
-  const frames = page.frames();
-  for (let i = 1; i < frames.length; i++) {
-    try {
-      const frameAria = await frames[i].locator('body').ariaSnapshot();
-      full += `\n--- iframe ${frameLabel(frames[i])} ---\n${frameAria}`;
-    } catch {
-      // detached or cross-origin — skip, never fatal
-    }
-  }
-  const { aria, truncated } = capAria(full);
+function toSnapshot(page: Page, title: string, ariaFull: string): Snapshot {
+  const { aria, truncated } = capAria(ariaFull);
   return { url: page.url(), title, aria, truncated };
+}
+
+export async function snapshot(page: Page): Promise<Snapshot> {
+  const frames = page.frames();
+  const iframeFrames = frames.slice(1);
+  const [title, bodyAria, iframeArias] = await Promise.all([
+    page.title(),
+    page.locator('body').ariaSnapshot(),
+    // detached or cross-origin — skip, never fatal
+    Promise.all(iframeFrames.map((f) => f.locator('body').ariaSnapshot().catch(() => null))),
+  ]);
+  let full = bodyAria;
+  iframeFrames.forEach((frame, i) => {
+    const frameAria = iframeArias[i];
+    if (frameAria !== null) full += `\n--- iframe ${frameLabel(frame)} ---\n${frameAria}`;
+  });
+  return toSnapshot(page, title, full);
 }
 
 /** Same as `snapshot()` but scoped to one region locator, for `expect: { that, within }`. */
 export async function snapshotRegion(page: Page, locator: Locator): Promise<Snapshot> {
   const [title, ariaFull] = await Promise.all([page.title(), locator.ariaSnapshot()]);
-  const { aria, truncated } = capAria(ariaFull);
-  return { url: page.url(), title, aria, truncated };
+  return toSnapshot(page, title, ariaFull);
 }
