@@ -56,7 +56,10 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   target, ≤254 candidates); `judge()` (one Noul per claim); `decide()`: a claim passes at p ≥ 0.9, fails at
   p ≤ 0.1, else `inconclusive`; a pick is accepted when (`confidence` if TypeSafe returned one, else
   `probability`) ≥ 0.5 and the answer isn't `none`. A rejected pick or non-passing claim dumps the exact state
-  to `$TMPDIR/jev-e2e/*.json` (`dumpDebug` in `src/steps.ts`).
+  to `$TMPDIR/jev-e2e/*.json` (`dumpDebug` in `src/steps.ts`). The model is pinned (`MODEL_BY_PROVIDER`), not `jev-latest`:
+  thresholds and phrasing advice were tuned against it. The TypeSafe SDK client handles timeouts and retries
+  (429/5xx, `Retry-After`); the gateway path keeps its own retry loop because the AI SDK's backoff cannot outlast
+  a rate-limit window.
 - `src/steps.ts` — one handler per step kind (`goto`, `fill`, `click`, `hover`, `dblclick`, `rightclick`,
   `select`, `check`, `uncheck`, `upload`, `scroll`, `wait`, `press`, `drag`, `mouse`, `expect`), each accepting
   `optional: true`. An action step is settle → snapshot candidates → Jev picks → Playwright acts; `expect`/`wait`
@@ -81,6 +84,9 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
 - Codex plugin (Agent Plugins portable format): root `plugin.json` + `mcp.json` + `.agents/plugins/marketplace.json`.
   They mirror the Claude Code files above; change name, version and description in both sets. `mcp.json` runs
   the same launcher with `cwd: ${PLUGIN_ROOT}`. `AGENTS.md` is a symlink to this file.
+- Docs: `README.md` is the quick start; `docs/spec-reference.md`, `docs/phrasing.md`, `docs/hooks.md` and
+  `docs/agent-mode.md` are the reference. A change to step kinds, thresholds, MCP tools, env loading or plugin
+  install steps lands in the matching doc too (and in the skill, for thresholds and tool names).
 
 ## Constraints
 
