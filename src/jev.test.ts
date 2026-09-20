@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { UnprocessableEntityError, BadRequestError } from '@typesafe-ai/sdk';
-import { decide, selectProvider, isTooLong } from './jev.js';
+import { decide, selectProvider, isTooLong, USER_ENV_FILE } from './jev.js';
 
 test('expect: high probability passes', () => {
   assert.equal(decide(0.95, 'expect'), 'pass');
@@ -55,6 +55,10 @@ test('selectProvider: JEV_PROVIDER=bogus throws', () => {
 test('selectProvider: no keys throws naming both variables', () => {
   assert.throws(() => selectProvider({}), /TYPESAFE_API_KEY/);
   assert.throws(() => selectProvider({}), /AI_GATEWAY_API_KEY/);
+});
+
+test('selectProvider: no keys names the user env file', () => {
+  assert.throws(() => selectProvider({}), (err: Error) => err.message.includes(USER_ENV_FILE));
 });
 
 test('selectProvider: JEV_PROVIDER=typesafe without its key throws naming TYPESAFE_API_KEY', () => {

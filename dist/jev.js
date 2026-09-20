@@ -1,5 +1,10 @@
 import { experimental_evaluate as evaluate, APICallError } from 'ai';
 import { TypeSafeClient, UnprocessableEntityError, noul, choice } from '@typesafe-ai/sdk';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+// One documented place for a key, read by the CLI and by both plugin hosts (src/cli.ts loads it after the cwd .env).
+// It exists because Codex passes plugin MCP servers no shell environment at all.
+export const USER_ENV_FILE = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'jev-e2e', '.env');
 export const MODEL_BY_PROVIDER = {
     // Pinned: decide()'s thresholds and the README's phrasing rules were tuned against this
     // version. `jev-latest` resolved to 1.13.0 as of 2026-09-19 — bump deliberately, re-tune after.
@@ -24,8 +29,8 @@ export function selectProvider(env = process.env) {
         return 'typesafe';
     if (env.AI_GATEWAY_API_KEY)
         return 'gateway';
-    throw new Error('Set TYPESAFE_API_KEY (TypeSafe direct) or AI_GATEWAY_API_KEY (Vercel AI Gateway), ' +
-        'in the environment or in a .env file next to where you run the CLI.');
+    throw new Error('Set TYPESAFE_API_KEY (TypeSafe direct) or AI_GATEWAY_API_KEY (Vercel AI Gateway) in the environment, ' +
+        `in ${USER_ENV_FILE}, or in a .env file in the current directory.`);
 }
 // Resolved and built lazily so a unit test importing this module never needs a key set.
 let cachedProvider;

@@ -28,9 +28,11 @@ node dist/cli.js --headless mcp
 entry via `${CLAUDE_PLUGIN_ROOT}/bin/jev-e2e.mjs --headless mcp`.
 
 Environment: `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` (`TYPESAFE_API_KEY` wins if both set), or force one with
-`JEV_PROVIDER=typesafe|gateway` (`src/jev.ts`, `selectProvider`). `src/cli.ts` loads `.env` from the cwd via
-Node's native `process.loadEnvFile()` (no `dotenv` dependency) — a convenience of the standalone CLI only. The
-plugin/MCP path has no `.env` loading; it reads keys straight from the OS/Claude Code environment.
+`JEV_PROVIDER=typesafe|gateway` (`src/jev.ts`, `selectProvider`). `src/cli.ts` loads `.env` from the cwd, then
+`~/.config/jev-e2e/.env` (`USER_ENV_FILE` in `src/jev.ts`), via Node's native `process.loadEnvFile()` (no `dotenv`);
+variables already in the environment are never overridden. The user file exists because Codex passes plugin MCP
+servers no shell environment. Without a key the CLI exits at startup; MCP mode keeps serving and the first Jev
+call returns the message as a tool error.
 
 `dist/` is committed on purpose — this repo is also a Claude Code plugin and ships its built output
 (`bin/jev-e2e.mjs` runs `dist/cli.js` directly; on first run it also lazy-installs npm deps and Chromium).

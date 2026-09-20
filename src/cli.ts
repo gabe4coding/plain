@@ -3,21 +3,15 @@ import { parseArgs } from 'node:util';
 import { loadSpec } from './spec.js';
 import { runSpec } from './runner.js';
 import { serveMcp } from './mcp.js';
-import { provider, MODEL_BY_PROVIDER } from './jev.js';
+import { provider, MODEL_BY_PROVIDER, USER_ENV_FILE } from './jev.js';
 
-// ponytail: cwd .env only; pass --env-file for another path
-try {
-  process.loadEnvFile();
-} catch {
-  /* no .env — fine */
-}
-
-try {
-  const p = provider();
-  console.error(`jev-e2e: Jev via ${p} (${MODEL_BY_PROVIDER[p]})`);
-} catch (err) {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(2);
+// ponytail: cwd .env first, then the user file; a variable already set in the environment is never overridden
+for (const file of ['.env', USER_ENV_FILE]) {
+  try {
+    process.loadEnvFile(file);
+  } catch {
+    /* no such file — fine */
+  }
 }
 
 const { values, positionals } = parseArgs({
@@ -34,6 +28,15 @@ if (positionals.length === 0) {
 }
 
 const opts = { headed: !values.headless, timeout: Number(values.timeout) };
+
+try {
+  const p = provider();
+  console.error(`jev-e2e: Jev via ${p} (${MODEL_BY_PROVIDER[p]})`);
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  // MCP mode keeps serving: the first Jev call returns this message as a tool error, where the agent can read it.
+  if (positionals[0] !== 'mcp') process.exit(2);
+}
 
 if (positionals[0] === 'mcp') {
   await serveMcp(opts); // stays alive until the transport closes

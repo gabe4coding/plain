@@ -161,9 +161,10 @@ This repo is also a Claude Code plugin: it ships the MCP server (root `.mcp.json
 dependencies and Chromium (progress on stderr). That first MCP connection can take a minute or two; if it times
 out, `/mcp` reconnects once the install is done.
 
-The API key must be in Claude Code's environment, which the MCP server inherits: put `TYPESAFE_API_KEY` (or
-`AI_GATEWAY_API_KEY`) in the `env` block of `~/.claude/settings.json`, or export it in your shell profile. The
-`.env` file is a convenience of the standalone CLI, not the way to configure the plugin.
+The API key must reach the MCP server: export `TYPESAFE_API_KEY` (or `AI_GATEWAY_API_KEY`) in your shell profile,
+put it in the `env` block of `~/.claude/settings.json`, or write it to `~/.config/jev-e2e/.env`, which every mode
+reads after the current directory's `.env` (variables already set in the environment win). Without a key the MCP
+server still starts, and the first `step` or `find` returns the missing-key message as a tool error.
 
 Install with `/plugin marketplace add /path/to/jev-e2e` then `/plugin install jev-e2e@jev-e2e-marketplace` (a
 git URL works the same once the repo has a remote). To try a clone without installing, run
@@ -182,5 +183,8 @@ symlink to `CLAUDE.md`, so Codex reads the same repo guidance.
 Install with `codex plugin marketplace add /path/to/jev-e2e` then `codex plugin add jev-e2e@jev-e2e-marketplace`
 (`<owner>/<repo>` works the same once the repo has a remote). Codex copies the whole clone, untracked files
 included, into `~/.codex/plugins/cache/`, so remove any `.env` from the clone first or install from a git source.
-The API key must be in the environment Codex starts from, as for Claude Code above. Uninstall with
+Codex does not pass your shell environment to plugin MCP servers (checked with codex-cli 0.154: the server gets only
+`PLUGIN_ROOT` and `PLUGIN_DATA`, and the `env`/`env_vars` overrides in `config.toml` had no effect), so put the key
+in `~/.config/jev-e2e/.env` and start a new Codex session. Plugin tools need approval; in a non-interactive run
+(`codex exec`) pass `--approve-for-me`, or every call fails with "approval policy is never". Uninstall with
 `codex plugin remove jev-e2e@jev-e2e-marketplace`, then `codex plugin marketplace remove jev-e2e-marketplace`.
