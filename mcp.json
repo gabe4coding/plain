@@ -1,10 +1,10 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "jev-e2e": {
+    "plainwright": {
       "type": "stdio",
       "command": "node",
-      "args": ["bin/jev-e2e.mjs", "--headless", "mcp"],
+      "args": ["bin/plainwright.mjs", "--headless", "mcp"],
       "cwd": "${PLUGIN_ROOT}"
     }
   }

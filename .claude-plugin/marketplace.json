@@ -1,12 +1,12 @@
 {
-  "name": "jev-e2e-marketplace",
-  "description": "Single-repo marketplace for the jev-e2e plugin",
+  "name": "plainwright-marketplace",
+  "description": "Single-repo marketplace for the plainwright plugin",
   "owner": {
     "name": "Gabriele Pavanello"
   },
   "plugins": [
     {
-      "name": "jev-e2e",
+      "name": "plainwright",
       "source": "./",
       "description": "YAML e2e tests where Playwright acts and the Jev model decides; MCP server for agents to drive a browser step by step"
     }

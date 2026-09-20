@@ -1,11 +1,11 @@
 {
-  "name": "jev-e2e-marketplace",
+  "name": "plainwright-marketplace",
   "interface": {
-    "displayName": "jev-e2e"
+    "displayName": "plainwright"
   },
   "plugins": [
     {
-      "name": "jev-e2e",
+      "name": "plainwright",
       "source": {
         "source": "local",
         "path": "./"

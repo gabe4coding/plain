@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "jev-e2e": {
+    "plainwright": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/jev-e2e.mjs", "--headless", "mcp"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/plainwright.mjs", "--headless", "mcp"]
     }
   }
 }

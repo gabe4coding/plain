@@ -25,17 +25,17 @@ node dist/cli.js --headless mcp
 ```
 
 `--headless` hides the browser (visible by default); `--timeout` is per-action (ms). `.mcp.json` runs the same
-entry via `${CLAUDE_PLUGIN_ROOT}/bin/jev-e2e.mjs --headless mcp`.
+entry via `${CLAUDE_PLUGIN_ROOT}/bin/plainwright.mjs --headless mcp`.
 
 Environment: `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` (`TYPESAFE_API_KEY` wins if both set), or force one with
 `JEV_PROVIDER=typesafe|gateway` (`src/jev.ts`, `selectProvider`). `src/cli.ts` loads `.env` from the cwd, then
-`~/.config/jev-e2e/.env` (`USER_ENV_FILE` in `src/jev.ts`), via Node's native `process.loadEnvFile()` (no `dotenv`);
+`~/.config/plainwright/.env` (`USER_ENV_FILE` in `src/jev.ts`), via Node's native `process.loadEnvFile()` (no `dotenv`);
 variables already in the environment are never overridden. The user file exists because Codex passes plugin MCP
 servers no shell environment. Without a key the CLI exits at startup; MCP mode keeps serving and the first Jev
 call returns the message as a tool error.
 
 `dist/` is committed on purpose — this repo is also a Claude Code plugin and ships its built output
-(`bin/jev-e2e.mjs` runs `dist/cli.js` directly; on first run it also lazy-installs npm deps and Chromium).
+(`bin/plainwright.mjs` runs `dist/cli.js` directly; on first run it also lazy-installs npm deps and Chromium).
 `dist/**/*.test.js` is gitignored. Rebuild before committing a `src/` change so `dist/` matches it.
 
 ## Architecture
@@ -56,7 +56,7 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   target, ≤254 candidates); `judge()` (one Noul per claim); `decide()`: a claim passes at p ≥ 0.9, fails at
   p ≤ 0.1, else `inconclusive`; a pick is accepted when (`confidence` if TypeSafe returned one, else
   `probability`) ≥ 0.5 and the answer isn't `none`. A rejected pick or non-passing claim dumps the exact state
-  to `$TMPDIR/jev-e2e/*.json` (`dumpDebug` in `src/steps.ts`). The model is pinned (`MODEL_BY_PROVIDER`), not `jev-latest`:
+  to `$TMPDIR/plainwright/*.json` (`dumpDebug` in `src/steps.ts`). The model is pinned (`MODEL_BY_PROVIDER`), not `jev-latest`:
   thresholds and phrasing advice were tuned against it. The TypeSafe SDK client handles timeouts and retries
   (429/5xx, `Retry-After`); the gateway path keeps its own retry loop because the AI SDK's backoff cannot outlast
   a rate-limit window.
@@ -79,7 +79,7 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   so all logging (here and in `src/cli.ts`/`src/steps.ts`) goes to `console.error`.
 - `src/cli.ts` — entry point: loads `.env`, then dispatches to `mcp` or to running each spec file in order.
 - Claude Code plugin: `.claude-plugin/{plugin.json,marketplace.json}` + root `.mcp.json` +
-  `skills/authoring-jev-e2e-specs/SKILL.md`. Keep the skill's thresholds and tool names in sync with `src/jev.ts`
+  `skills/authoring-plainwright-specs/SKILL.md`. Keep the skill's thresholds and tool names in sync with `src/jev.ts`
   and `src/mcp.ts` when either changes.
 - Codex plugin (Agent Plugins portable format): root `plugin.json` + `mcp.json` + `.agents/plugins/marketplace.json`.
   They mirror the Claude Code files above; change name, version and description in both sets. `mcp.json` runs
@@ -91,10 +91,10 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
 ## Constraints
 
 - This repo is site-agnostic. Site-specific skills, environment facts, and regression specs belong in downstream
-  plugins that depend on jev-e2e, not here.
+  plugins that depend on plainwright, not here.
 - Specs never hold literal credentials: put them in the spec's `env` block as `$VAR` references, used in steps as
   `${env.*}`.
 - `examples/*.yaml` run against public demo sites; `examples/fixtures/` and `examples/hooks/` back the
   `login-dataset.yaml` example.
-- Per `skills/authoring-jev-e2e-specs/SKILL.md`: test environments only, stop before the last irreversible step
+- Per `skills/authoring-plainwright-specs/SKILL.md`: test environments only, stop before the last irreversible step
   (payment, booking, sending), never bypass bot protection.

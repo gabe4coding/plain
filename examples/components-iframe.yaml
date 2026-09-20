@@ -6,5 +6,5 @@ steps:
   # TinyMCE's shared cloud demo key sometimes runs out of monthly editor loads, which makes the
   # editor read-only (contenteditable=false) — no fill candidate exists in that state. Optional so
   # that doesn't fail the whole spec; see the report for what was actually observed.
-  - fill: { target: "the rich text editor content area inside the iframe", value: "Hello from jev-e2e" }
+  - fill: { target: "the rich text editor content area inside the iframe", value: "Hello from plainwright" }
     optional: true

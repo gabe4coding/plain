@@ -1,10 +1,10 @@
 {
-  "name": "jev-e2e",
+  "name": "plainwright",
   "version": "1.0.0",
   "description": "YAML-driven end-to-end browser tests, with Jev resolving natural-language steps and expectations",
   "type": "module",
   "bin": {
-    "jev-e2e": "bin/jev-e2e.mjs"
+    "plainwright": "bin/plainwright.mjs"
   },
   "scripts": {
     "build": "tsc",

@@ -74,7 +74,7 @@ export async function openSession(spec, opts, track) {
             page = popup;
         });
         p.on('download', async (download) => {
-            const dir = path.join(os.tmpdir(), 'jev-e2e', 'downloads');
+            const dir = path.join(os.tmpdir(), 'plainwright', 'downloads');
             fs.mkdirSync(dir, { recursive: true });
             const dest = path.join(dir, download.suggestedFilename());
             await download.saveAs(dest);

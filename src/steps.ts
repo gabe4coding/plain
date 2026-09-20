@@ -88,7 +88,7 @@ function resolveUrl(base: string, path: string): string {
 
 /** Dump debug data to a temp file for a rejection/timeout/fail detail line, and return its path. */
 function dumpDebug(kind: string, data: unknown): string {
-  const dir = path.join(os.tmpdir(), 'jev-e2e');
+  const dir = path.join(os.tmpdir(), 'plainwright');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${Date.now()}-${kind}.json`);
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
@@ -217,7 +217,7 @@ async function judgeSnapshot(ctx: StepContext, snap: Snapshot, claims: string[])
       if (!isTooLong(err) || s.aria.length < 4000) throw err;
       const half = s.aria.slice(0, Math.floor(s.aria.length / 2));
       s = { ...s, aria: half };
-      console.error(`jev-e2e: state too long for the model, aria cut to ${half.length} chars — scope the expect with \`within\` for precision`);
+      console.error(`plainwright: state too long for the model, aria cut to ${half.length} chars — scope the expect with \`within\` for precision`);
     }
   }
 }

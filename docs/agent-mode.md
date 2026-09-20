@@ -1,12 +1,12 @@
 # Agent mode
 
-`jev-e2e mcp` serves the engine as an [MCP](https://modelcontextprotocol.io) server over stdio with
+`plainwright mcp` serves the engine as an [MCP](https://modelcontextprotocol.io) server over stdio with
 one persistent browser session. An agent explores a flow one sentence at a time, then saves it as a
 spec that the batch runner replays. Jev still makes every pick and every judgment, so the agent never
 reads the accessibility tree (5 to 20k tokens per page): one sentence in, one line out.
 
 ```sh
-node bin/jev-e2e.mjs [--headless] [--timeout <ms>] mcp
+node bin/plainwright.mjs [--headless] [--timeout <ms>] mcp
 ```
 
 ## Tools
@@ -22,14 +22,14 @@ node bin/jev-e2e.mjs [--headless] [--timeout <ms>] mcp
 A rejected pick comes back `inconclusive` with the top guesses in `detail`, so the agent rephrases and
 retries. `${env.*}` is not available in a session, only `${hooks.*}`.
 
-The plugin's skill, `skills/authoring-jev-e2e-specs/SKILL.md`, teaches the agent the workflow and the
+The plugin's skill, `skills/authoring-plainwright-specs/SKILL.md`, teaches the agent the workflow and the
 [phrasing rules](phrasing.md).
 
 ## The API key
 
 The server reads `TYPESAFE_API_KEY` (or `AI_GATEWAY_API_KEY`) from, in order: the process environment,
-a `.env` in its working directory, `~/.config/jev-e2e/.env`. A value already set is never overridden.
-`~/.config/jev-e2e/.env` is the one place that works for the CLI and for both plugin hosts, because
+a `.env` in its working directory, `~/.config/plainwright/.env`. A value already set is never overridden.
+`~/.config/plainwright/.env` is the one place that works for the CLI and for both plugin hosts, because
 Codex passes plugin servers no shell environment at all.
 
 Without a key the server still starts. The first `step` or `find` returns the missing-key message as a
@@ -38,8 +38,8 @@ tool error, where the agent can read it.
 ## Claude Code
 
 ```
-/plugin marketplace add /path/to/jev-e2e
-/plugin install jev-e2e@jev-e2e-marketplace
+/plugin marketplace add /path/to/plainwright
+/plugin install plainwright@plainwright-marketplace
 ```
 
 A git URL works the same once the repo has a remote. The plugin ships the MCP server (root
@@ -52,16 +52,16 @@ Key alternatives: export it in your shell profile, or put it in the `env` block 
 
 Pitfalls:
 
-- To try a clone without installing, run `claude --plugin-dir /path/to/jev-e2e` from any directory
+- To try a clone without installing, run `claude --plugin-dir /path/to/plainwright` from any directory
   other than the clone itself. Inside the clone, Claude Code also loads the repo's `.mcp.json` as a
   project server, where `${CLAUDE_PLUGIN_ROOT}` is undefined, and that duplicate fails.
-- A server registered by hand with `claude mcp add jev-e2e ...` silently replaces the plugin's server
+- A server registered by hand with `claude mcp add plainwright ...` silently replaces the plugin's server
   of the same name. Remove it.
 
 Without the plugin, register the server directly:
 
 ```sh
-claude mcp add jev-e2e -- node /path/to/jev-e2e/bin/jev-e2e.mjs --headless mcp
+claude mcp add plainwright -- node /path/to/plainwright/bin/plainwright.mjs --headless mcp
 ```
 
 ## Codex
@@ -71,24 +71,24 @@ root `plugin.json`, `mcp.json` and `.agents/plugins/marketplace.json`. Skills ar
 `skills/`. `AGENTS.md` is a symlink to `CLAUDE.md`, so Codex reads the same repo guidance.
 
 ```sh
-codex plugin marketplace add /path/to/jev-e2e     # or <owner>/<repo> once the repo has a remote
-codex plugin add jev-e2e@jev-e2e-marketplace
+codex plugin marketplace add /path/to/plainwright     # or <owner>/<repo> once the repo has a remote
+codex plugin add plainwright@plainwright-marketplace
 ```
 
-Then put the key in `~/.config/jev-e2e/.env` and start a new Codex session.
+Then put the key in `~/.config/plainwright/.env` and start a new Codex session.
 
 Pitfalls, checked with codex-cli 0.154:
 
 - Codex copies the whole clone, untracked files included, into `~/.codex/plugins/cache/`. Remove any
   `.env` from the clone first, or install from a git source.
 - Plugin MCP servers get only `PLUGIN_ROOT` and `PLUGIN_DATA` in their environment. The `env` and
-  `env_vars` overrides in `config.toml` had no effect. `~/.config/jev-e2e/.env` is the way in.
+  `env_vars` overrides in `config.toml` had no effect. `~/.config/plainwright/.env` is the way in.
 - Plugin tools need approval. In a non-interactive run (`codex exec`) pass `--approve-for-me`, or every
   call fails with "approval policy is never".
 
 Uninstall:
 
 ```sh
-codex plugin remove jev-e2e@jev-e2e-marketplace
-codex plugin marketplace remove jev-e2e-marketplace
+codex plugin remove plainwright@plainwright-marketplace
+codex plugin marketplace remove plainwright-marketplace
 ```

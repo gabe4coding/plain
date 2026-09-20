@@ -1,4 +1,4 @@
-# jev-e2e
+# plainwright
 
 End-to-end browser tests written in plain English.
 
@@ -25,16 +25,16 @@ one sentence at a time and save the session as a replayable spec.
 Requirements: Node 22+, a [TypeSafe](https://typesafe.ai) API key.
 
 ```sh
-git clone <this repo> jev-e2e && cd jev-e2e
-mkdir -p ~/.config/jev-e2e && echo 'TYPESAFE_API_KEY=<your key>' > ~/.config/jev-e2e/.env
-node bin/jev-e2e.mjs examples/todo.yaml
+git clone <this repo> plainwright && cd plainwright
+mkdir -p ~/.config/plainwright && echo 'TYPESAFE_API_KEY=<your key>' > ~/.config/plainwright/.env
+node bin/plainwright.mjs examples/todo.yaml
 ```
 
 The first run installs npm dependencies and Chromium, then opens a visible browser and prints one line
 per step:
 
 ```
-jev-e2e: Jev via typesafe (jev-1.13.0)
+plainwright: Jev via typesafe (jev-1.13.0)
 ✔ add a todo  (2 Jev calls, 1059 tokens)
   ✔ goto /
   ✔ fill "the new todo input" → input placeholder="What needs to be done?" (p=0.99 c=0.98)
@@ -46,8 +46,8 @@ jev-e2e: Jev via typesafe (jev-1.13.0)
 did not land). The exit code is 0 only when every spec passes.
 
 ```sh
-node bin/jev-e2e.mjs --headless spec.yaml other.yaml   # hide the browser, run several specs
-node bin/jev-e2e.mjs --timeout 30000 spec.yaml         # per-action timeout in ms, default 15000
+node bin/plainwright.mjs --headless spec.yaml other.yaml   # hide the browser, run several specs
+node bin/plainwright.mjs --timeout 30000 spec.yaml         # per-action timeout in ms, default 15000
 ```
 
 ## Configuration
@@ -59,7 +59,7 @@ node bin/jev-e2e.mjs --timeout 30000 spec.yaml         # per-action timeout in m
 | `JEV_PROVIDER` | `typesafe` or `gateway`, to force a backend. |
 
 Read from the shell environment, then a `.env` in the current directory (see `.env.example`), then
-`~/.config/jev-e2e/.env`.
+`~/.config/plainwright/.env`.
 A variable already set is never overridden. The model is pinned to a tested version (`jev-1.13.0` on
 TypeSafe) rather than following `jev-latest`, because the decision thresholds and the phrasing advice
 were tuned against it.
@@ -94,7 +94,7 @@ a role and its visible text.
 
 ## Let an agent drive the browser
 
-`jev-e2e mcp` serves the engine as an MCP server with one persistent browser session and five tools:
+`plainwright mcp` serves the engine as an MCP server with one persistent browser session and five tools:
 `open`, `step`, `find`, `snapshot`, `save`. The agent never reads the accessibility tree; it sends one
 sentence and gets one line back, then saves the flow as a spec.
 
@@ -102,15 +102,15 @@ Install as a plugin (the plugin also ships a skill that teaches the agent the ph
 
 ```sh
 # Claude Code
-/plugin marketplace add /path/to/jev-e2e
-/plugin install jev-e2e@jev-e2e-marketplace
+/plugin marketplace add /path/to/plainwright
+/plugin install plainwright@plainwright-marketplace
 
 # Codex
-codex plugin marketplace add /path/to/jev-e2e
-codex plugin add jev-e2e@jev-e2e-marketplace
+codex plugin marketplace add /path/to/plainwright
+codex plugin add plainwright@plainwright-marketplace
 ```
 
-Both read the key from `~/.config/jev-e2e/.env`. Details, alternatives and known pitfalls are in
+Both read the key from `~/.config/plainwright/.env`. Details, alternatives and known pitfalls are in
 [docs/agent-mode.md](docs/agent-mode.md).
 
 ## Rules

@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 // One documented place for a key, read by the CLI and by both plugin hosts (src/cli.ts loads it after the cwd .env).
 // It exists because Codex passes plugin MCP servers no shell environment at all.
-export const USER_ENV_FILE = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'jev-e2e', '.env');
+export const USER_ENV_FILE = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'plainwright', '.env');
 export const MODEL_BY_PROVIDER = {
     // Pinned: decide()'s thresholds and the README's phrasing rules were tuned against this
     // version. `jev-latest` resolved to 1.13.0 as of 2026-09-19 — bump deliberately, re-tune after.

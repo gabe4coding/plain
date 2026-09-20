@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { loadSpec, interpolate } from './spec.js';
 
 function specFile(yaml: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'jev-e2e-spec-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'plainwright-spec-test-'));
   const path = join(dir, 'spec.yaml');
   writeFileSync(path, yaml);
   return path;
@@ -151,15 +151,15 @@ steps:
 });
 
 test('auth option resolves $VAR values from the environment, errors clearly if unset', () => {
-  process.env.JEV_E2E_TEST_PASS = 'secret123';
+  process.env.PLAINWRIGHT_TEST_PASS = 'secret123';
   const withEnv = loadSpec(
-    specFile('name: x\nurl: https://example.com\nauth: { user: admin, pass: "$JEV_E2E_TEST_PASS" }\nsteps:\n  - click: "ok"\n')
+    specFile('name: x\nurl: https://example.com\nauth: { user: admin, pass: "$PLAINWRIGHT_TEST_PASS" }\nsteps:\n  - click: "ok"\n')
   );
   assert.deepEqual(withEnv.auth, { user: 'admin', pass: 'secret123' });
-  delete process.env.JEV_E2E_TEST_PASS;
+  delete process.env.PLAINWRIGHT_TEST_PASS;
   assert.throws(
-    () => loadSpec(specFile('name: x\nurl: https://example.com\nauth: { user: admin, pass: "$JEV_E2E_TEST_PASS" }\nsteps:\n  - click: "ok"\n')),
-    /JEV_E2E_TEST_PASS/
+    () => loadSpec(specFile('name: x\nurl: https://example.com\nauth: { user: admin, pass: "$PLAINWRIGHT_TEST_PASS" }\nsteps:\n  - click: "ok"\n')),
+    /PLAINWRIGHT_TEST_PASS/
   );
 });
 

@@ -6,7 +6,7 @@ a probability. The lever is wording, not thresholds.
 ## How Jev decides
 
 **Picking an element** (`click`, `fill`, `hover`, `select`, `check`, `upload`, `scroll`, `drag`,
-`expect ... within`). jev-e2e collects the candidate elements for the step kind, numbers them, and asks
+`expect ... within`). plainwright collects the candidate elements for the step kind, numbers them, and asks
 Jev one Choice question: which candidate does the sentence mean, or `none`. The pick is accepted when
 Jev's confidence in the chosen option is at least 0.5 and the answer is not `none`. The step's detail
 shows `p=` (probability) and, on the TypeSafe backend, `c=` (confidence). Otherwise the step is
@@ -23,7 +23,7 @@ Jev Choice takes at most 255 options. Past that, scope with `within` or use `css
 at p ≥ 0.9, fails at p ≤ 0.1, and is `inconclusive` in between. `wait` repeats the question every
 1.5 s, up to 8 times.
 
-A rejected pick or a non-passing claim dumps the exact state Jev saw to `$TMPDIR/jev-e2e/*.json`. The
+A rejected pick or a non-passing claim dumps the exact state Jev saw to `$TMPDIR/plainwright/*.json`. The
 path is in `detail`.
 
 ## Writing a target

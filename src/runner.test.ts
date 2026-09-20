@@ -9,7 +9,7 @@ import { runSpec } from './runner.js';
 const OPTS = { headed: false, timeout: 5000 };
 
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'jev-e2e-runner-test-'));
+  return mkdtempSync(join(tmpdir(), 'plainwright-runner-test-'));
 }
 
 function writeSpec(dir: string, yaml: string): string {

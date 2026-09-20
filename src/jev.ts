@@ -8,7 +8,7 @@ export type Provider = 'typesafe' | 'gateway';
 
 // One documented place for a key, read by the CLI and by both plugin hosts (src/cli.ts loads it after the cwd .env).
 // It exists because Codex passes plugin MCP servers no shell environment at all.
-export const USER_ENV_FILE = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'jev-e2e', '.env');
+export const USER_ENV_FILE = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'plainwright', '.env');
 
 export const MODEL_BY_PROVIDER: Record<Provider, string> = {
   // Pinned: decide()'s thresholds and the README's phrasing rules were tuned against this

@@ -35,7 +35,7 @@ export async function teardown({ spec, page, data, result }) {
   becomes `${hooks.*}` in `url` and in every step string, and is passed to `teardown` as `data`.
 - `teardown` runs after every successful `setup`, whether the steps passed, failed or errored, so a
   lease is never left behind. `result` is `{ status, steps }` for the run so far.
-- Where the data comes from is up to the module. jev-e2e only calls the two functions and passes the
+- Where the data comes from is up to the module. plainwright only calls the two functions and passes the
   data through.
 
 ## Static data: `env`

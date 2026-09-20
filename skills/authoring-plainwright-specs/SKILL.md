@@ -1,9 +1,9 @@
 ---
-name: authoring-jev-e2e-specs
-description: Use when writing, exploring or debugging a jev-e2e YAML end-to-end test, or when driving a website through the jev-e2e MCP tools (open, step, find, snapshot, save) — including when a step comes back inconclusive or a saved spec fails on replay.
+name: authoring-plainwright-specs
+description: Use when writing, exploring or debugging a plainwright YAML end-to-end test, or when driving a website through the plainwright MCP tools (open, step, find, snapshot, save) — including when a step comes back inconclusive or a saved spec fails on replay.
 ---
 
-# Authoring jev-e2e specs
+# Authoring plainwright specs
 
 ## Overview
 
@@ -17,7 +17,7 @@ with one clear yes. The lever is wording, not thresholds.
   `inconclusive` and `detail` lists the top guesses with their probabilities.
 - A claim passes at p ≥ 0.9, fails at p ≤ 0.1, and is `inconclusive` in between. `optional: true` turns an
   inconclusive or error step into `skipped`.
-- Rejected picks and non-passing claims dump the exact state Jev saw to `$TMPDIR/jev-e2e/*.json`; the path
+- Rejected picks and non-passing claims dump the exact state Jev saw to `$TMPDIR/plainwright/*.json`; the path
   is in `detail`.
 
 ## Workflow
@@ -30,7 +30,7 @@ with one clear yes. The lever is wording, not thresholds.
 3. `save` when the flow is complete. Only steps that passed are saved.
 4. Edit the YAML: `optional: true` where the page is nondeterministic, a `#` comment where a phrasing is
    non-obvious, a `wait` before anything that appears after a delay.
-5. Replay headless: `node <jev-e2e dir>/dist/cli.js --headless spec.yaml` (the plugin dir is
+5. Replay headless: `node <plainwright dir>/dist/cli.js --headless spec.yaml` (the plugin dir is
    `${CLAUDE_PLUGIN_ROOT}`). Run it twice. Green twice is done. Anything else goes back to step 2 with the
    dump file.
 

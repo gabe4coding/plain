@@ -21,13 +21,13 @@ const { values, positionals } = parseArgs({
     allowPositionals: true,
 });
 if (positionals.length === 0) {
-    console.error('usage: jev-e2e [--headless] [--timeout <ms>] <spec.yaml> [more.yaml ...] | mcp');
+    console.error('usage: plainwright [--headless] [--timeout <ms>] <spec.yaml> [more.yaml ...] | mcp');
     process.exit(2);
 }
 const opts = { headed: !values.headless, timeout: Number(values.timeout) };
 try {
     const p = provider();
-    console.error(`jev-e2e: Jev via ${p} (${MODEL_BY_PROVIDER[p]})`);
+    console.error(`plainwright: Jev via ${p} (${MODEL_BY_PROVIDER[p]})`);
 }
 catch (err) {
     console.error(err instanceof Error ? err.message : String(err));

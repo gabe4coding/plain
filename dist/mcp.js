@@ -55,7 +55,7 @@ kept as written when \`save\` writes the spec, so the saved spec stays dataset-d
 not available in this session — add it to the YAML yourself after saving.`;
 export async function serveMcp(opts) {
     let session = null;
-    const spec = { name: 'jev-e2e session', url: '', dir: process.cwd(), dialogs: 'accept', steps: [] };
+    const spec = { name: 'plainwright session', url: '', dir: process.cwd(), dialogs: 'accept', steps: [] };
     const transcript = [];
     let totalTokens = 0;
     const track = (tokens) => void (totalTokens += tokens);
@@ -64,7 +64,7 @@ export async function serveMcp(opts) {
     let hooksFile = null;
     let data = {};
     const results = []; // every step result, pass or not, in order — teardown sees the full run
-    const server = new McpServer({ name: 'jev-e2e', version: '1.0.0' });
+    const server = new McpServer({ name: 'plainwright', version: '1.0.0' });
     function ok(data) {
         return { content: [{ type: 'text', text: JSON.stringify(data) }] };
     }
@@ -185,7 +185,7 @@ export async function serveMcp(opts) {
             await runTeardown();
         }
         catch (err) {
-            console.error('jev-e2e: teardown failed: ' + (err instanceof Error ? err.message : String(err)));
+            console.error('plainwright: teardown failed: ' + (err instanceof Error ? err.message : String(err)));
         }
         await session?.close();
         process.exit(0);
