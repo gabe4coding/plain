@@ -78,5 +78,6 @@ A third rephrasing of the same fact is never the next move.
 
 ## Safety
 
-Test environments only. Stop before the last irreversible step: payment, booking, sending. Credentials as
-`$VAR` environment references, never literal values. Never bypass bot protection.
+Test environments only. Stop before the last irreversible step: payment, booking, sending. Credentials go in the
+spec's `env` block as `$VAR` environment references and are used as `${env.*}` in steps, never as literals. Never
+bypass bot protection.

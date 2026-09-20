@@ -1,0 +1,11 @@
+name: Login with a user from the dataset
+url: https://the-internet.herokuapp.com
+env:
+  path: /login
+hooks: ./hooks/login-dataset.mjs
+steps:
+  - goto: "${env.path}"
+  - fill: { target: the username textbox, value: "${hooks.user.name}" }
+  - fill: { target: the password textbox, value: "${hooks.user.pass}" }
+  - click: the Login button
+  - expect: a heading with the text "Secure Area" is shown

@@ -92,6 +92,42 @@ state); name things the way the accessibility tree does ("a heading with the tex
 Jev saw to `$TMPDIR/jev-e2e/*.json`; fix the wording against that, then rerun. See `examples/thefork-identita-golose.yaml`.
 `npm run example` runs 3 specs; `login-fails.yaml` is meant to fail, so its exit code 1 is expected.
 
+## Setup and teardown
+
+`env` (top-level mapping) holds static data for the spec — arbitrarily nested, e.g. `env: { path: /login, user: { name: tomsmith } }`.
+A leaf string starting with `$` is an OS-environment reference, resolved like `auth`/`geolocation`'s `$VAR` (from the
+real environment, `~/.claude/settings.json`'s `env`, a shell profile, wherever the process got it) — never a literal credential.
+
+`hooks` (top-level string, a path relative to the spec file) points at an ES module with two optional exports:
+
+```yaml
+env:
+  path: /login
+hooks: ./hooks/login-dataset.mjs
+steps:
+  - goto: "${env.path}"
+  - fill: { target: the username textbox, value: "${hooks.user.name}" }
+  - fill: { target: the password textbox, value: "${hooks.user.pass}" }
+  - click: the Login button
+  - expect: a heading with the text "Secure Area" is shown
+```
+
+- `setup({ spec, page })` runs once, before the first step, and may return an object (or nothing). What it returns
+  becomes `${hooks.*}` in every step's strings and the `url`, and is handed to `teardown` as `data`.
+- `teardown({ spec, page, data, result })` always runs after a successful `setup` — whether the steps passed,
+  failed, or errored — so cleanup (releasing a leased row, closing a ticket) isn't skipped on failure. `result` is
+  `{ status, steps }` for the run so far.
+
+Where the dataset itself comes from — a checked-in file (as in the example above), a remote test-data service, a
+database lease — is entirely up to the hooks module; jev-e2e only calls `setup`/`teardown` and passes data through.
+
+`${env.*}`/`${hooks.*}` placeholders work in `url` and any step string (`fill.value`, `click`, `expect`, ...).
+Failure semantics: a `setup` error skips every step and `teardown` (nothing was leased, so there's nothing to
+release) — the run is `error` with a single `setup` step. A `teardown` error always makes the run `error`, even if
+every step passed. An unresolved placeholder fails the run before the first step, listing the exact `${...}` text.
+
+See `examples/login-dataset.yaml`, `examples/hooks/login-dataset.mjs` and `examples/fixtures/users.json`.
+
 ## Agent mode (MCP)
 
 `node dist/cli.js mcp [--headless] [--timeout <ms>]` serves the same engine as an MCP server over stdio, so an

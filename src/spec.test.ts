@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { loadSpec } from './spec.js';
+import { dirname, join } from 'node:path';
+import { loadSpec, interpolate } from './spec.js';
 
 function specFile(yaml: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'jev-e2e-spec-test-'));
@@ -212,4 +212,71 @@ test('dialogs option is parsed at the top level, defaults to accept', () => {
   const withoutDialogs = loadSpec(specFile('name: x\nurl: https://example.com\nsteps:\n  - click: "ok"\n'));
   assert.equal(withoutDialogs.dialogs, 'accept');
   assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\ndialogs: maybe\nsteps:\n  - click: "ok"\n')));
+});
+
+test('env block is parsed with arbitrary nesting', () => {
+  const path = specFile(`
+name: env block
+url: https://example.com
+env:
+  path: /login
+  user:
+    name: tomsmith
+steps:
+  - click: "ok"
+`);
+  const spec = loadSpec(path);
+  assert.deepEqual(spec.env, { path: '/login', user: { name: 'tomsmith' } });
+});
+
+test('env leaves starting with $ resolve from the OS environment, missing var fails clearly', () => {
+  process.env.JEV_TEST_X = 'abc';
+  const withVar = loadSpec(
+    specFile('name: x\nurl: https://example.com\nenv:\n  token: "$JEV_TEST_X"\nsteps:\n  - click: "ok"\n')
+  );
+  assert.deepEqual(withVar.env, { token: 'abc' });
+  delete process.env.JEV_TEST_X;
+  assert.throws(
+    () => loadSpec(specFile('name: x\nurl: https://example.com\nenv:\n  token: "$JEV_TEST_X"\nsteps:\n  - click: "ok"\n')),
+    /JEV_TEST_X/
+  );
+});
+
+test('env must be a mapping', () => {
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nenv: nope\nsteps:\n  - click: "ok"\n')));
+});
+
+test('hooks resolves to an absolute path relative to the spec file, must be a non-empty string', () => {
+  const path = specFile('name: x\nurl: https://example.com\nhooks: ./hooks.mjs\nsteps:\n  - click: "ok"\n');
+  const spec = loadSpec(path);
+  assert.equal(spec.hooks, join(dirname(path), 'hooks.mjs'));
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nhooks: 5\nsteps:\n  - click: "ok"\n')));
+  assert.throws(() => loadSpec(specFile('name: x\nurl: https://example.com\nhooks: ""\nsteps:\n  - click: "ok"\n')));
+});
+
+test('interpolate replaces ${env.*} and ${hooks.*} in a fill value, an expect entry, and a url', () => {
+  const vars = { env: { user: { name: 'tomsmith' } }, hooks: { lease: { id: 7 } } };
+  const value = {
+    url: 'https://example.com/${hooks.lease.id}',
+    fill: { target: 'the username field', value: '${env.user.name}' },
+    expectations: ['claim one', 'lease ${hooks.lease.id} is active'],
+  };
+  const result = interpolate(value, vars, 'test spec');
+  assert.equal(result.url, 'https://example.com/7');
+  assert.equal(result.fill.value, 'tomsmith');
+  assert.deepEqual(result.expectations, ['claim one', 'lease 7 is active']);
+});
+
+test('interpolate stringifies a number leaf', () => {
+  const result = interpolate('id ${hooks.lease.id}', { env: {}, hooks: { lease: { id: 7 } } }, 'test spec');
+  assert.equal(result, 'id 7');
+});
+
+test('interpolate fails on an unknown namespace and on an unresolved placeholder, naming the placeholder', () => {
+  assert.throws(() => interpolate('${foo.x}', { env: {}, hooks: {} }, 'test spec'), /\$\{foo\.x\}/);
+  assert.throws(() => interpolate('${env.nope}', { env: {}, hooks: {} }, 'test spec'), /\$\{env\.nope\}/);
+});
+
+test('interpolate returns a value without placeholders unchanged', () => {
+  assert.equal(interpolate('plain string', { env: {}, hooks: {} }, 'test spec'), 'plain string');
 });

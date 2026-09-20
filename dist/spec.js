@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { parse } from 'yaml';
 function fail(msg) {
     throw new Error(`invalid spec: ${msg}`);
@@ -14,6 +14,21 @@ function resolveEnvRef(path, field, value) {
     if (!resolved)
         fail(`${path}: "${field}" references $${name} but that env var is not set`);
     return resolved;
+}
+// `env` mirrors auth/geolocation's `$VAR` convention but at arbitrary depth, since setup data
+// (dataset lookups, feature flags, ...) is naturally nested (`env.user.name`, not `env["user.name"]`).
+function resolveEnvBlock(path, field, raw) {
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+        const childField = `${field}.${key}`;
+        if (typeof value === 'string')
+            out[key] = resolveEnvRef(path, childField, value);
+        else if (value !== null && typeof value === 'object' && !Array.isArray(value))
+            out[key] = resolveEnvBlock(path, childField, value);
+        else
+            out[key] = value;
+    }
+    return out;
 }
 // `expect`/`expect.that` takes one claim (a string) or several (a list) — always normalized to a
 // non-empty string array so steps.ts judges every claim in one Jev request.
@@ -191,6 +206,50 @@ export function loadSpec(path) {
             fail(`${path}: "geolocation.lon" must be a number`);
         geolocation = { lat: g.lat, lon: g.lon };
     }
+    let env = {};
+    if (raw.env !== undefined) {
+        if (raw.env === null || typeof raw.env !== 'object')
+            fail(`${path}: "env" must be a mapping`);
+        env = resolveEnvBlock(path, 'env', raw.env);
+    }
+    let hooks;
+    if (raw.hooks !== undefined) {
+        if (typeof raw.hooks !== 'string' || !raw.hooks)
+            fail(`${path}: "hooks" must be a non-empty string`);
+        hooks = resolve(dirname(path), raw.hooks);
+    }
     const steps = raw.steps.map((s, i) => parseStep(path, i, s));
-    return { name: raw.name, url: raw.url, dir: dirname(path), dialogs, auth, geolocation, steps };
+    return { name: raw.name, url: raw.url, dir: dirname(path), dialogs, auth, geolocation, env, hooks, steps };
+}
+// Deep-walks `value`, replacing every `${a.b.c}` in any string with the leaf it names under
+// `vars.env`/`vars.hooks` (the spec's env block, and whatever the hooks module's setup returned).
+// Pure and side-effect-free: returns a new value, never mutates `value`.
+export function interpolate(value, vars, where) {
+    if (typeof value === 'string') {
+        if (!value.includes('${'))
+            return value;
+        return value.replace(/\$\{([^}]+)\}/g, (_match, expr) => {
+            const [namespace, ...rest] = expr.split('.');
+            let leaf = namespace === 'env' || namespace === 'hooks' ? vars[namespace] : undefined;
+            for (const key of rest) {
+                if (leaf === null || typeof leaf !== 'object' || Array.isArray(leaf)) {
+                    leaf = undefined;
+                    break;
+                }
+                leaf = leaf[key];
+            }
+            if (leaf === undefined || leaf === null || typeof leaf === 'object')
+                fail(`${where}: \${${expr}} is not defined (use \${env.*} from the spec's env block or \${hooks.*} from what setup returned)`);
+            return String(leaf);
+        });
+    }
+    if (Array.isArray(value))
+        return value.map((v) => interpolate(v, vars, where));
+    if (value !== null && typeof value === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(value))
+            out[k] = interpolate(v, vars, where);
+        return out;
+    }
+    return value;
 }

@@ -1,9 +1,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { chromium, type Page } from 'playwright';
-import type { Spec } from './spec.js';
+import { interpolate, type Spec } from './spec.js';
 import { runStep, label, type StepContext, type StepResult, type Status } from './steps.js';
+
+// What a hooks module (`spec.hooks`) may export. Both are optional; anything else is rejected once
+// imported, before the browser opens.
+interface HooksModule {
+  setup?: (args: { spec: Spec; page: Page }) => unknown;
+  teardown?: (args: { spec: Spec; page: Page; data: Record<string, unknown>; result: { status: Status; steps: StepResult[] } }) => unknown;
+}
 
 export interface TestResult {
   name: string;
@@ -110,9 +118,54 @@ export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: numb
     totalTokens += tokens;
   }
 
+  // Imported before the browser opens so a broken hooks module fails fast — no session to clean up yet.
+  let hooks: HooksModule = {};
+  if (spec.hooks) {
+    hooks = await import(pathToFileURL(spec.hooks).href);
+    if (hooks.setup !== undefined && typeof hooks.setup !== 'function')
+      throw new Error(`${spec.hooks}: "setup" must be a function`);
+    if (hooks.teardown !== undefined && typeof hooks.teardown !== 'function')
+      throw new Error(`${spec.hooks}: "teardown" must be a function`);
+  }
+
   const session = await openSession(spec, opts, track);
+
+  // What setup returns, exposed to steps/teardown as `${hooks.*}`/`data` — `{}` when there's no setup.
+  let data: Record<string, unknown> = {};
+  if (hooks.setup) {
+    try {
+      const returned = await hooks.setup({ spec, page: session.ctx.page });
+      if (returned !== undefined) {
+        if (returned === null || typeof returned !== 'object') throw new Error('setup must return an object');
+        data = returned as Record<string, unknown>;
+      }
+      steps.push({ step: 'setup', status: 'pass' });
+    } catch (err) {
+      // Nothing ran yet, so there's nothing for teardown to release — just close the browser.
+      await session.close();
+      return {
+        name: spec.name,
+        status: 'error',
+        steps: [{ step: 'setup', status: 'error', detail: err instanceof Error ? err.message : String(err) }],
+        jevCalls,
+        totalTokens,
+      };
+    }
+  }
+
   try {
-    for (const step of spec.steps) {
+    let runSteps = spec.steps;
+    try {
+      const interpolated = interpolate({ url: spec.url, steps: spec.steps }, { env: spec.env ?? {}, hooks: data }, spec.name);
+      session.ctx.spec = { ...spec, url: interpolated.url };
+      runSteps = interpolated.steps;
+    } catch (err) {
+      overall = 'error';
+      steps.push({ step: 'interpolate', status: 'error', detail: err instanceof Error ? err.message : String(err) });
+      runSteps = [];
+    }
+
+    for (const step of runSteps) {
       let result: StepResult;
       try {
         result = await runStep(session.ctx, step);
@@ -140,6 +193,16 @@ export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: numb
       }
     }
   } finally {
+    // Runs whenever setup succeeded (or there was none) — a cleanup failure must never be silent.
+    if (hooks.teardown) {
+      try {
+        await hooks.teardown({ spec, page: session.ctx.page, data, result: { status: overall, steps } });
+        steps.push({ step: 'teardown', status: 'pass' });
+      } catch (err) {
+        overall = 'error';
+        steps.push({ step: 'teardown', status: 'error', detail: err instanceof Error ? err.message : String(err) });
+      }
+    }
     await session.close();
   }
 
