@@ -1,15 +1,26 @@
 ---
-name: authoring-plainwright-specs
-description: Use when writing, exploring or debugging a plainwright YAML end-to-end test, or when driving a website through the plainwright MCP tools (open, step, find, snapshot, evaluate, save) — including when a step comes back inconclusive, when reading results off a page the flow reached, or when a saved spec fails on replay.
+name: using-plainwright
+description: Use when driving a website through the plainwright MCP tools (open, step, find, snapshot, evaluate, save) — for a browser task, for reading data off a page, or for writing, debugging or replaying a plainwright YAML end-to-end test — including when a step comes back inconclusive.
 ---
 
-# Authoring plainwright specs
+# Using plainwright
 
 ## Overview
 
 Playwright acts, the Jev model decides: it picks the element your words describe and judges whether your
 claim holds against the page's accessibility tree. You never see the page. You write words Jev can answer
 with one clear yes. The lever is wording, not thresholds.
+
+## Two modes, pick one first
+
+**REQUIRED: before the first tool call, Read the file for your mode** (it sits next to this file):
+
+- The user wants something **done or read** on a site (search, compare, extract, check a page):
+  `browsing.md`. Nothing is saved in this mode.
+- The user wants a **test**: a spec, a regression check, or a saved spec fails on replay:
+  `authoring.md`.
+
+The rules below apply to both.
 
 ## How outcomes are decided
 
@@ -20,32 +31,7 @@ with one clear yes. The lever is wording, not thresholds.
 - Rejected picks and non-passing claims dump the exact state Jev saw to `$TMPDIR/plainwright/*.json`; the path
   is in `detail`.
 
-## Workflow
-
-1. `open` the start URL. Do not `snapshot` first: `step` and `find` do the looking. Pass `headed: true` when the
-   user wants to watch the browser (default is headless). Pass `hooks: ./path.mjs`
-   when the flow needs leased or generated data; the response lists the `${hooks.*}` placeholders to use in
-   steps, and `save` keeps them.
-2. Drive the flow with `step`, one action or one check per call. Read `status`, `detail`, `notes` and `url`
-   after every call.
-3. `save` when the flow is complete. Only steps that passed are saved.
-4. Edit the YAML: `optional: true` where the page is nondeterministic, a `#` comment where a phrasing is
-   non-obvious, a `wait` before anything that appears after a delay.
-5. Replay headless: `node <plainwright dir>/dist/cli.js --headless spec.yaml` (the plugin dir is
-   `${CLAUDE_PLUGIN_ROOT}`). Run it twice. Green twice is done. Anything else goes back to step 2 with the
-   dump file.
-
-## Reading data from the page
-
-Steps act; to read results, do not `snapshot` the whole page (tens of thousands of characters).
-
-- `snapshot` with `within: "the results list"` (or `css=...`) returns only that region's tree. A table comes as
-  rows and cells you can read directly.
-- `evaluate` with a JavaScript expression returns clean JSON: `[...document.querySelectorAll('article')].map(a => a.innerText)`.
-
-Neither is recorded by `save`.
-
-## Writing a target (click, fill, hover, select, check)
+## Writing a target (click, fill, hover, select, check, scroll)
 
 One element, one true answer, named the way the accessibility tree names it: role, visible text, and what
 sets it apart from its siblings.
@@ -58,6 +44,8 @@ sets it apart from its siblings.
   no state to read is a `click`.
 - `scroll: bottom` and `scroll: top` scroll the page and report the distance in `detail`. `did not move` means
   the content scrolls inside an element: `scroll: the results list` instead.
+- A dialog that opened by itself (a calendar after picking a place, a menu after a hover) is already there:
+  do not click its trigger again, that closes it.
 
 ## Writing a claim (expect, wait)
 
@@ -90,14 +78,13 @@ A third rephrasing of the same fact is never the next move.
 |---|---|
 | `expect: "the secure area is shown with a success message"` | Two facts: use the list form |
 | `wait: "the checkbox is gone"` | Absence: `wait: the message "It's gone!" is shown` |
-| Hand-writing the YAML instead of `save` | `save`, then edit |
-| Done after one green run | Run twice; flaky steps show on the second |
-| Reading the tool's source to learn the thresholds | They are listed above |
 | `snapshot` of the whole page to read a table | `snapshot` with `within`, or `evaluate` |
 | `check: the Hotels chip` on a plain button | `click` it; `check` needs a state to read |
+| Reading the tool's source to learn the thresholds | They are listed above |
 
 ## Safety
 
-Test environments only. Stop before the last irreversible step: payment, booking, sending. Credentials go in the
-spec's `env` block as `$VAR` environment references and are used as `${env.*}` in steps, never as literals. Never
-bypass bot protection.
+Test environments for tests; the user's own accounts only when they asked for it. Stop before the last
+irreversible step: payment, booking, sending, posting, deleting. Credentials go in a spec's `env` block as `$VAR`
+environment references and are used as `${env.*}` in steps, never as literals. Never bypass bot protection: if a
+site blocks the browser, say so.

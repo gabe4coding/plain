@@ -37,8 +37,9 @@ evaluate { js: '[...document.querySelectorAll("article")].map(a => a.querySelect
 Neither is a step: `save` does not record them and a spec has no equivalent. They are for the agent's own
 reading, after plainwright's steps got the page there.
 
-The plugin's skill, `skills/authoring-plainwright-specs/SKILL.md`, teaches the agent the workflow and the
-[phrasing rules](phrasing.md).
+The plugin's skill, `skills/using-plainwright/`, teaches the agent the [phrasing rules](phrasing.md) in
+`SKILL.md`, then one of two workflows: `browsing.md` to do or read something on a site (nothing is saved),
+`authoring.md` to save, edit and replay a spec.
 
 ## Your real browser
 

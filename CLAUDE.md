@@ -88,7 +88,8 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   so all logging (here and in `src/cli.ts`/`src/steps.ts`) goes to `console.error`.
 - `src/cli.ts` — entry point: loads `.env`, then dispatches to `mcp` or to running each spec file in order.
 - Claude Code plugin: `.claude-plugin/{plugin.json,marketplace.json}` + root `.mcp.json` +
-  `skills/authoring-plainwright-specs/SKILL.md`. Keep the skill's thresholds and tool names in sync with `src/jev.ts`
+  `skills/using-plainwright/` (`SKILL.md` = the rules both modes share and a router; `browsing.md` = do or read
+  something on a site, nothing saved; `authoring.md` = save, edit, replay a spec). Keep the skill's thresholds and tool names in sync with `src/jev.ts`
   and `src/mcp.ts` when either changes.
 - Codex plugin (Agent Plugins portable format): root `plugin.json` + `mcp.json` + `.agents/plugins/marketplace.json`.
   They mirror the Claude Code files above; change name, version and description in both sets. `mcp.json` runs
@@ -105,5 +106,5 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   `${env.*}`.
 - `examples/*.yaml` run against public demo sites; `examples/fixtures/` and `examples/hooks/` back the
   `login-dataset.yaml` example.
-- Per `skills/authoring-plainwright-specs/SKILL.md`: test environments only, stop before the last irreversible step
+- Per `skills/using-plainwright/SKILL.md`: test environments only, stop before the last irreversible step
   (payment, booking, sending), never bypass bot protection.
