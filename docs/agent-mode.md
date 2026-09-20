@@ -27,14 +27,28 @@ The plugin's skill, `skills/authoring-plainwright-specs/SKILL.md`, teaches the a
 
 ## Your real browser
 
-By default every session is a fresh Chromium with an empty profile: no cookies, no logins. Two flags
-change that. They work for the CLI and for `mcp`, and as `PLAINWRIGHT_PROFILE` / `PLAINWRIGHT_CDP` in
-`~/.config/plainwright/.env` for a plugin install, whose arguments you cannot change.
+By default every session is a fresh Chromium with an empty profile: no cookies, no logins. Three flags
+change that. They work for the CLI and for `mcp`, and as `PLAINWRIGHT_PROFILE`, `PLAINWRIGHT_CHANNEL`
+and `PLAINWRIGHT_CDP` in `~/.config/plainwright/.env` for a plugin install, whose arguments you cannot
+change. None of them has a default: without them every run gets the bundled Chromium and a throwaway
+profile, which keeps tests independent of each other. A leading `~` in the profile path is expanded.
 
-**`--profile <dir>`: a browser that remembers.** Chromium is launched with a persistent user-data
+**`--profile <dir>`: a browser that remembers.** The browser is launched with a persistent user-data
 directory. Log in once, and the next session is still logged in. Use a directory plainwright owns,
 such as `~/.plainwright`. Copying your Google Chrome profile there does not carry your cookies over,
 since Chrome encrypts them per application.
+
+**`--channel chrome`: your installed Google Chrome instead of the bundled Chromium.** Combined with
+`--profile`, this is the recommended way to a signed-in browser that plainwright starts and stops
+itself:
+
+```sh
+node bin/plainwright.mjs --profile ~/.plainwright-chrome --channel chrome mcp
+```
+
+The first time, sign in to your Google account in that window and turn on sync: passwords and
+extensions arrive, then log in to the sites you need once. From then on every run is signed in.
+Other channels work too (`chrome-beta`, `msedge`); the browser must be installed.
 
 **`--cdp <url>`: the Chrome you are looking at.** plainwright attaches to a running Chrome over the
 DevTools protocol, opens its own tab there and drives it with your live sessions, extensions and
@@ -56,7 +70,7 @@ the sites you need once. The profile dir keeps it all. Rules of the attached mod
   closes your Chrome.
 - `auth` and `geolocation` in a spec are rejected: they configure a new browser context, and the point
   here is to reuse yours.
-- When both flags are given, `--cdp` wins. There is nothing to launch.
+- When `--cdp` is given, `--profile` and `--channel` are ignored. There is nothing to launch.
 - Anything the agent does happens in your real accounts. Read the [rules](../README.md#rules) again.
 
 ## The API key

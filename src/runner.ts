@@ -58,6 +58,8 @@ export interface RunOptions {
   profile?: string;
   /** Attach to a running Chrome over CDP (e.g. http://127.0.0.1:9222) instead of launching one. */
   cdp?: string;
+  /** Playwright browser channel to launch instead of the bundled Chromium: `chrome`, `msedge`, `chrome-beta`... */
+  channel?: string;
 }
 
 // Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
@@ -87,10 +89,10 @@ async function openPage(spec: Spec, opts: RunOptions): Promise<{ page: Page; clo
     };
   }
   if (opts.profile) {
-    const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, ...contextOptions });
+    const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, channel: opts.channel, ...contextOptions });
     return { page: context.pages()[0] ?? (await context.newPage()), close: () => context.close() };
   }
-  const browser = await chromium.launch({ headless: !opts.headed });
+  const browser = await chromium.launch({ headless: !opts.headed, channel: opts.channel });
   const context = await browser.newContext(contextOptions);
   return { page: await context.newPage(), close: () => browser.close() };
 }

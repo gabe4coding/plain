@@ -4,6 +4,7 @@ import { loadSpec } from './spec.js';
 import { runSpec, type RunOptions } from './runner.js';
 import { serveMcp } from './mcp.js';
 import { provider, MODEL_BY_PROVIDER, USER_ENV_FILE } from './jev.js';
+import { homedir } from 'node:os';
 
 // ponytail: cwd .env first, then the user file; a variable already set in the environment is never overridden
 for (const file of ['.env', USER_ENV_FILE]) {
@@ -20,12 +21,13 @@ const { values, positionals } = parseArgs({
     timeout: { type: 'string', default: '15000' },
     profile: { type: 'string' },
     cdp: { type: 'string' },
+    channel: { type: 'string' },
   },
   allowPositionals: true,
 });
 
 if (positionals.length === 0) {
-  console.error('usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] <spec.yaml> [more.yaml ...] | mcp');
+  console.error('usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] [--channel chrome] <spec.yaml> [more.yaml ...] | mcp');
   process.exit(2);
 }
 
@@ -34,8 +36,9 @@ const opts: RunOptions = {
   timeout: Number(values.timeout),
   // ponytail: env fallbacks so a plugin install, whose arguments are fixed, can still be pointed at a
   // profile or a running Chrome from ~/.config/plainwright/.env
-  profile: values.profile ?? process.env.PLAINWRIGHT_PROFILE,
+  profile: (values.profile ?? process.env.PLAINWRIGHT_PROFILE)?.replace(/^~(?=\/|$)/, homedir()), // .env files don't expand ~
   cdp: values.cdp ?? process.env.PLAINWRIGHT_CDP,
+  channel: values.channel ?? process.env.PLAINWRIGHT_CHANNEL,
 };
 
 try {

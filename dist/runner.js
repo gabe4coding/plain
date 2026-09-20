@@ -55,10 +55,10 @@ async function openPage(spec, opts) {
         };
     }
     if (opts.profile) {
-        const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, ...contextOptions });
+        const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, channel: opts.channel, ...contextOptions });
         return { page: context.pages()[0] ?? (await context.newPage()), close: () => context.close() };
     }
-    const browser = await chromium.launch({ headless: !opts.headed });
+    const browser = await chromium.launch({ headless: !opts.headed, channel: opts.channel });
     const context = await browser.newContext(contextOptions);
     return { page: await context.newPage(), close: () => browser.close() };
 }

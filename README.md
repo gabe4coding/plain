@@ -49,10 +49,11 @@ did not land). The exit code is 0 only when every spec passes.
 node bin/plainwright.mjs --headless spec.yaml other.yaml   # hide the browser, run several specs
 node bin/plainwright.mjs --timeout 30000 spec.yaml         # per-action timeout in ms, default 15000
 node bin/plainwright.mjs --profile ~/.plainwright spec.yaml   # persistent profile: log in once, stay logged in
+node bin/plainwright.mjs --profile ~/.plainwright --channel chrome spec.yaml   # same, in your installed Google Chrome
 node bin/plainwright.mjs --cdp http://127.0.0.1:9222 spec.yaml   # drive a Chrome you already have open
 ```
 
-`--cdp` needs a Chrome started with a debugging port. See [your real browser](docs/agent-mode.md#your-real-browser).
+See [your real browser](docs/agent-mode.md#your-real-browser) for what each one gives you.
 
 ## Configuration
 
@@ -62,7 +63,8 @@ node bin/plainwright.mjs --cdp http://127.0.0.1:9222 spec.yaml   # drive a Chrom
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway instead. `TYPESAFE_API_KEY` wins when both are set. |
 | `JEV_PROVIDER` | `typesafe` or `gateway`, to force a backend. |
 | `PLAINWRIGHT_PROFILE` | Same as `--profile`. |
-| `PLAINWRIGHT_CDP` | Same as `--cdp`. Both are read so a plugin install, whose arguments are fixed, can be pointed at your browser. |
+| `PLAINWRIGHT_CDP` | Same as `--cdp`. |
+| `PLAINWRIGHT_CHANNEL` | Same as `--channel`. The three are read so a plugin install, whose arguments are fixed, can be pointed at your browser. |
 
 Read from the shell environment, then a `.env` in the current directory (see `.env.example`), then
 `~/.config/plainwright/.env`.
