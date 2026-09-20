@@ -64,3 +64,12 @@ Working example: `examples/login-dataset.yaml`, `examples/hooks/login-dataset.mj
 `examples/fixtures/users.json`.
 
 Hooks work in agent mode too: pass `hooks` to the `open` tool. See [agent-mode.md](agent-mode.md).
+
+## Isolation with `--workers`
+
+Hooks are plain Node code running inside the plainwright process. With `--workers N`, several specs'
+`setup`/`teardown` can run at the same time in that one process, and Node caches an imported hooks
+module per path, so two specs sharing a `hooks` file share the same module instance. Because of that,
+hooks must not rely on module-level state (a variable, counter or cache set outside `setup`/`teardown`)
+or on exclusive access to an external resource (a fixed file path, a single DB connection) — keeping a
+spec's hooks isolated from another spec's is the spec author's responsibility.

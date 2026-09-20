@@ -164,11 +164,14 @@ function resolveUrl(base: string, path: string): string {
   return new URL(rel, baseWithSlash).toString();
 }
 
+let dumpSeq = 0;
+
 /** Dump debug data to a temp file for a rejection/timeout/fail detail line, and return its path. */
 function dumpDebug(kind: string, data: unknown): string {
   const dir = path.join(os.tmpdir(), 'plainwright');
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${Date.now()}-${kind}.json`);
+  // pid + a per-process counter: concurrent specs must not overwrite each other's dump.
+  const file = path.join(dir, `${Date.now()}-${process.pid}-${++dumpSeq}-${kind}.json`);
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
   return file;
 }

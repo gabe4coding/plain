@@ -47,6 +47,7 @@ const MAX_EVENTS = 30; // ponytail: cap what's sent to Jev as `events` — a lon
 
 export interface Session {
   ctx: StepContext;
+  downloadsDir: string;
   drainNotes(): string[];
   close(): Promise<void>;
 }
@@ -161,6 +162,8 @@ async function openPage(spec: Spec, opts: RunOptions): Promise<{ page: Page; clo
 
 export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: number) => void): Promise<Session> {
   const opened = await openPage(spec, opts);
+  // Own directory per session so concurrent/consecutive specs never see each other's downloads.
+  const downloadsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plainwright-downloads-'));
 
   // `page` is the *active* page — a popup can replace it mid-run (see the 'popup' handler below),
   // so every step below must read this variable rather than capturing the initial page.
@@ -199,9 +202,8 @@ export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: 
     p.on('download', async (download) => {
       const release = holdActivity(p); // the click that started it keeps waiting until the note is written
       try {
-        const dir = path.join(os.tmpdir(), 'plainwright', 'downloads');
-        fs.mkdirSync(dir, { recursive: true });
-        const dest = path.join(dir, download.suggestedFilename());
+        // Per-session directory (created in openSession): isolates downloads across specs and runs.
+        const dest = path.join(downloadsDir, download.suggestedFilename());
         await download.saveAs(dest);
         note(`download: "${download.suggestedFilename()}" saved to ${dest}`);
       } finally {
@@ -219,12 +221,19 @@ export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: 
 
   return {
     ctx,
+    downloadsDir,
     drainNotes(): string[] {
       const notes = pendingNotes;
       pendingNotes = [];
       return notes;
     },
-    close: opened.close,
+    close: async () => {
+      try {
+        await opened.close();
+      } finally {
+        fs.rmSync(downloadsDir, { recursive: true, force: true }); // leave nothing behind, even if the context failed to close
+      }
+    },
   };
 }
 

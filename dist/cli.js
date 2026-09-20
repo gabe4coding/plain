@@ -45,6 +45,10 @@ const opts = {
     cdp: values.cdp ?? process.env.PLAINWRIGHT_CDP,
     channel: values.channel ?? process.env.PLAINWRIGHT_CHANNEL,
 };
+if (workers > 1 && (opts.profile || opts.cdp)) {
+    console.error('plainwright: --workers > 1 needs isolated browsers; --profile opens one persistent profile (cannot be opened twice) and --cdp attaches to one shared browser context. Run those with --workers 1.');
+    process.exit(2);
+}
 try {
     const p = provider();
     console.error(`plainwright: Jev via ${p} (${MODEL_BY_PROVIDER[p]})`);

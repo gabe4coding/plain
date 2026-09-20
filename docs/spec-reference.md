@@ -95,7 +95,7 @@ never shows:
 - dialogs, and how they were answered
 - popups and new tabs. A new tab becomes the active page for every following step, with dialog,
   download and error capture attached to it. Closing the browser closes every tab.
-- downloads, saved to `$TMPDIR/plainwright/downloads/<suggested filename>`
+- downloads, saved to a fresh per-session directory under `$TMPDIR/plainwright-downloads-*/<suggested filename>`
 - uncaught page errors and `console.error` messages
 
 So `expect: a file was downloaded` and `expect: a JavaScript error happened` are answerable.

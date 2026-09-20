@@ -65,6 +65,9 @@ node bin/plainwright.mjs --cdp http://127.0.0.1:9222 spec.yaml   # drive a Chrom
 
 See [your real browser](docs/agent-mode.md#your-real-browser) for what each one gives you.
 
+`--workers` needs the default launch mode (no `--profile`, no `--cdp`): each spec then gets its own
+browser context and its own empty downloads directory, so concurrent specs never see each other's files.
+
 ## Configuration
 
 | Variable | Meaning |

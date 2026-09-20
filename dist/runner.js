@@ -147,6 +147,8 @@ async function openPage(spec, opts) {
 }
 export async function openSession(spec, opts, track) {
     const opened = await openPage(spec, opts);
+    // Own directory per session so concurrent/consecutive specs never see each other's downloads.
+    const downloadsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plainwright-downloads-'));
     // `page` is the *active* page — a popup can replace it mid-run (see the 'popup' handler below),
     // so every step below must read this variable rather than capturing the initial page.
     let page = opened.page;
@@ -184,9 +186,8 @@ export async function openSession(spec, opts, track) {
         p.on('download', async (download) => {
             const release = holdActivity(p); // the click that started it keeps waiting until the note is written
             try {
-                const dir = path.join(os.tmpdir(), 'plainwright', 'downloads');
-                fs.mkdirSync(dir, { recursive: true });
-                const dest = path.join(dir, download.suggestedFilename());
+                // Per-session directory (created in openSession): isolates downloads across specs and runs.
+                const dest = path.join(downloadsDir, download.suggestedFilename());
                 await download.saveAs(dest);
                 note(`download: "${download.suggestedFilename()}" saved to ${dest}`);
             }
@@ -204,12 +205,20 @@ export async function openSession(spec, opts, track) {
     const ctx = { get page() { return page; }, spec, timeout: opts.timeout, events, track, ms: {} };
     return {
         ctx,
+        downloadsDir,
         drainNotes() {
             const notes = pendingNotes;
             pendingNotes = [];
             return notes;
         },
-        close: opened.close,
+        close: async () => {
+            try {
+                await opened.close();
+            }
+            finally {
+                fs.rmSync(downloadsDir, { recursive: true, force: true }); // leave nothing behind, even if the context failed to close
+            }
+        },
     };
 }
 export async function runSpec(spec, opts) {

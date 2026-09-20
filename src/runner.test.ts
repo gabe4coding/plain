@@ -4,7 +4,7 @@ import { writeFileSync, mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSpec } from './spec.js';
-import { runSpec, sharedBrowser, closeSharedBrowser, mapLimit } from './runner.js';
+import { runSpec, openSession, sharedBrowser, closeSharedBrowser, mapLimit } from './runner.js';
 import { chromium } from 'playwright';
 
 const OPTS = { headed: false, timeout: 5000 };
@@ -192,6 +192,28 @@ test('sharedBrowser reuses one Chromium for the same options; closeSharedBrowser
   assert.equal(a, b, 'same options reuse the same Browser instance');
   await closeSharedBrowser();
   assert.equal(a.isConnected(), false, 'closed after closeSharedBrowser()');
+});
+
+test('openSession gives each session its own downloads dir, gone after close()', async () => {
+  const dir = tempDir();
+  const spec = loadSpec(writeSpec(dir, 'name: downloads isolation\nurl: "about:blank"\nsteps:\n  - goto: "about:blank"\n'));
+  const track = (): void => {};
+
+  const a = await openSession(spec, OPTS, track);
+  const b = await openSession(spec, OPTS, track);
+
+  assert.notEqual(a.downloadsDir, b.downloadsDir, 'two sessions get different directories');
+  assert.ok(existsSync(a.downloadsDir), 'a\'s directory exists while open');
+  assert.ok(existsSync(b.downloadsDir), 'b\'s directory exists while open');
+
+  await a.close();
+  assert.equal(existsSync(a.downloadsDir), false, 'gone after close()');
+  assert.ok(existsSync(b.downloadsDir), 'closing a leaves b untouched');
+
+  await b.close();
+  assert.equal(existsSync(b.downloadsDir), false, 'gone after close()');
+
+  await closeSharedBrowser();
 });
 
 test('mapLimit runs at most `limit` tasks concurrently and resolves results in input order', async () => {
