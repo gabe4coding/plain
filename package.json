@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "YAML-driven end-to-end browser tests, with Jev resolving natural-language steps and expectations",
   "repository": "github:gabe4coding/plainwright",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "plainwright": "bin/plainwright.mjs"

@@ -128,3 +128,7 @@ npm run build     # src/ → dist/; dist/ is committed because the plugins run i
 ```
 
 `CLAUDE.md` describes the code layout.
+
+## License
+
+[MIT](LICENSE)
