@@ -7,7 +7,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Spec } from './spec.js';
 import { parseStep, interpolate } from './spec.js';
-import { openSession, loadHooks, runSetup, type Session, type HooksModule, type RunOptions } from './runner.js';
+import { openSession, loadHooks, runSetup, closeSharedBrowser, type Session, type HooksModule, type RunOptions } from './runner.js';
 import { runStep, label, resolveLocators, type StepResult } from './steps.js';
 import { snapshot, snapshotRegion, CandidateKindSchema } from './page.js';
 
@@ -249,6 +249,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
       console.error('plainwright: teardown failed: ' + (err instanceof Error ? err.message : String(err)));
     }
     await session?.close();
+    await closeSharedBrowser();
     process.exit(0);
   };
   transport.onclose = () => {

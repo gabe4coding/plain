@@ -4,7 +4,7 @@ import { writeFileSync, mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSpec } from './spec.js';
-import { runSpec } from './runner.js';
+import { runSpec, sharedBrowser, closeSharedBrowser } from './runner.js';
 import { chromium } from 'playwright';
 
 const OPTS = { headed: false, timeout: 5000 };
@@ -184,4 +184,12 @@ test('--cdp rejects a spec with auth (cannot be applied to an existing context)'
   const dir = tempDir();
   const spec = loadSpec(writeSpec(dir, 'name: a\nurl: "data:text/html,<h1>hi</h1>"\nauth: { user: u, pass: p }\nsteps:\n  - goto: "data:text/html,<h1>hi</h1>"\n'));
   await assert.rejects(runSpec(spec, { ...OPTS, cdp: 'http://127.0.0.1:1' }), /--cdp attaches/);
+});
+
+test('sharedBrowser reuses one Chromium for the same options; closeSharedBrowser tears it down', async () => {
+  const a = await sharedBrowser(OPTS);
+  const b = await sharedBrowser(OPTS);
+  assert.equal(a, b, 'same options reuse the same Browser instance');
+  await closeSharedBrowser();
+  assert.equal(a.isConnected(), false, 'closed after closeSharedBrowser()');
 });

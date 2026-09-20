@@ -6,7 +6,7 @@ import { stringify } from 'yaml';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { parseStep, interpolate } from './spec.js';
-import { openSession, loadHooks, runSetup } from './runner.js';
+import { openSession, loadHooks, runSetup, closeSharedBrowser } from './runner.js';
 import { runStep, label, resolveLocators } from './steps.js';
 import { snapshot, snapshotRegion, CandidateKindSchema } from './page.js';
 // Leaf paths of `data` as `${hooks.a.b}` placeholders for the `open` response — never the values
@@ -229,6 +229,7 @@ export async function serveMcp(opts) {
             console.error('plainwright: teardown failed: ' + (err instanceof Error ? err.message : String(err)));
         }
         await session?.close();
+        await closeSharedBrowser();
         process.exit(0);
     };
     transport.onclose = () => {

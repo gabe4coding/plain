@@ -50,8 +50,25 @@ export const RunOptionsSchema = z.object({
     /** Playwright browser channel to launch instead of the bundled Chromium. */
     channel: z.string().optional(),
 });
+// One Chromium per launch profile for the whole process; each spec gets its own context (isolation
+// unchanged) and only the context is closed per spec. Relaunched if headed/channel change or it died.
+let shared = null;
+export async function sharedBrowser(opts) {
+    const key = `${!opts.headed}|${opts.channel ?? ''}`;
+    if (shared && shared.key === key && shared.browser.isConnected())
+        return shared.browser;
+    await closeSharedBrowser();
+    shared = { key, browser: await chromium.launch({ headless: !opts.headed, channel: opts.channel }) };
+    return shared.browser;
+}
+export async function closeSharedBrowser() {
+    const b = shared?.browser;
+    shared = null;
+    if (b)
+        await b.close().catch(() => { });
+}
 // Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
-// launch a throwaway browser (the default). Returns the page plus how to release it: attaching must
+// reuse the shared throwaway browser (the default). Returns the page plus how to release it: attaching must
 // disconnect (never close the user's Chrome) and only close the tab it opened.
 async function openPage(spec, opts) {
     const contextOptions = {};
@@ -80,9 +97,9 @@ async function openPage(spec, opts) {
         const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, channel: opts.channel, ...contextOptions });
         return { page: context.pages()[0] ?? (await context.newPage()), close: () => context.close() };
     }
-    const browser = await chromium.launch({ headless: !opts.headed, channel: opts.channel });
+    const browser = await sharedBrowser(opts);
     const context = await browser.newContext(contextOptions);
-    return { page: await context.newPage(), close: () => browser.close() };
+    return { page: await context.newPage(), close: () => context.close() };
 }
 export async function openSession(spec, opts, track) {
     const opened = await openPage(spec, opts);

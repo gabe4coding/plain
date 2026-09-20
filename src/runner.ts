@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { chromium, type BrowserContextOptions, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContextOptions, type Page } from 'playwright';
 import { interpolate, type Spec } from './spec.js';
 import { runStep, label, StatusSchema, StepResultSchema, holdActivity, type StepContext, type StepResult, type Status } from './steps.js';
 import { installSettleObserver } from './page.js';
@@ -66,8 +66,24 @@ export const RunOptionsSchema = z.object({
 });
 export type RunOptions = z.infer<typeof RunOptionsSchema>;
 
+// One Chromium per launch profile for the whole process; each spec gets its own context (isolation
+// unchanged) and only the context is closed per spec. Relaunched if headed/channel change or it died.
+let shared: { key: string; browser: Browser } | null = null;
+export async function sharedBrowser(opts: RunOptions): Promise<Browser> {
+  const key = `${!opts.headed}|${opts.channel ?? ''}`;
+  if (shared && shared.key === key && shared.browser.isConnected()) return shared.browser;
+  await closeSharedBrowser();
+  shared = { key, browser: await chromium.launch({ headless: !opts.headed, channel: opts.channel }) };
+  return shared.browser;
+}
+export async function closeSharedBrowser(): Promise<void> {
+  const b = shared?.browser;
+  shared = null;
+  if (b) await b.close().catch(() => {});
+}
+
 // Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
-// launch a throwaway browser (the default). Returns the page plus how to release it: attaching must
+// reuse the shared throwaway browser (the default). Returns the page plus how to release it: attaching must
 // disconnect (never close the user's Chrome) and only close the tab it opened.
 async function openPage(spec: Spec, opts: RunOptions): Promise<{ page: Page; close: () => Promise<void> }> {
   const contextOptions: BrowserContextOptions = {};
@@ -96,9 +112,9 @@ async function openPage(spec: Spec, opts: RunOptions): Promise<{ page: Page; clo
     const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, channel: opts.channel, ...contextOptions });
     return { page: context.pages()[0] ?? (await context.newPage()), close: () => context.close() };
   }
-  const browser = await chromium.launch({ headless: !opts.headed, channel: opts.channel });
+  const browser = await sharedBrowser(opts);
   const context = await browser.newContext(contextOptions);
-  return { page: await context.newPage(), close: () => browser.close() };
+  return { page: await context.newPage(), close: () => context.close() };
 }
 
 export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: number) => void): Promise<Session> {

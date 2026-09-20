@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { loadSpec } from './spec.js';
-import { runSpec } from './runner.js';
+import { runSpec, closeSharedBrowser } from './runner.js';
 import { serveMcp } from './mcp.js';
 import { formatMs } from './steps.js';
 import { provider, MODEL_BY_PROVIDER, USER_ENV_FILE } from './jev.js';
@@ -96,6 +96,7 @@ else {
             console.log(`  error: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
+    await closeSharedBrowser();
     if (values.timing && Object.keys(runMs).length) {
         console.log(`ms run ${formatMs(runMs)}`);
     }
