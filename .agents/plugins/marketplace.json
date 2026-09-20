@@ -1,0 +1,20 @@
+{
+  "name": "jev-e2e-marketplace",
+  "interface": {
+    "displayName": "jev-e2e"
+  },
+  "plugins": [
+    {
+      "name": "jev-e2e",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

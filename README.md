@@ -171,3 +171,16 @@ git URL works the same once the repo has a remote). To try a clone without insta
 Code also loads the same `.mcp.json` as a project server, where `${CLAUDE_PLUGIN_ROOT}` is undefined, and that
 duplicate fails. If you registered the server by hand with `claude mcp add jev-e2e …`, remove it: a manual
 server with the same name silently replaces the plugin's.
+
+### Install as a Codex plugin
+
+The same clone is a Codex plugin in the [Agent Plugins](https://agent-plugins.org) portable format: root
+`plugin.json`, `mcp.json` (the same launcher, started with `cwd` set to the plugin root) and the marketplace
+file `.agents/plugins/marketplace.json`. Skills are picked up from `skills/` by both clients. `AGENTS.md` is a
+symlink to `CLAUDE.md`, so Codex reads the same repo guidance.
+
+Install with `codex plugin marketplace add /path/to/jev-e2e` then `codex plugin add jev-e2e@jev-e2e-marketplace`
+(`<owner>/<repo>` works the same once the repo has a remote). Codex copies the whole clone, untracked files
+included, into `~/.codex/plugins/cache/`, so remove any `.env` from the clone first or install from a git source.
+The API key must be in the environment Codex starts from, as for Claude Code above. Uninstall with
+`codex plugin remove jev-e2e@jev-e2e-marketplace`, then `codex plugin marketplace remove jev-e2e-marketplace`.

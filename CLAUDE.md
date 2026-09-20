@@ -80,6 +80,9 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
 - Claude Code plugin: `.claude-plugin/{plugin.json,marketplace.json}` + root `.mcp.json` +
   `skills/authoring-jev-e2e-specs/SKILL.md`. Keep the skill's thresholds and tool names in sync with `src/jev.ts`
   and `src/mcp.ts` when either changes.
+- Codex plugin (Agent Plugins portable format): root `plugin.json` + `mcp.json` + `.agents/plugins/marketplace.json`.
+  They mirror the Claude Code files above; change name, version and description in both sets. `mcp.json` runs
+  the same launcher with `cwd: ${PLUGIN_ROOT}`. `AGENTS.md` is a symlink to this file.
 
 ## Constraints
 

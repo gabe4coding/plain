@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "jev-e2e",
+  "version": "0.1.0",
+  "description": "YAML e2e tests where Playwright acts and the Jev model decides; MCP server for agents to drive a browser step by step",
+  "author": {
+    "name": "Gabriele Pavanello"
+  }
+}
