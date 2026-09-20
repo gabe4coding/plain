@@ -20,18 +20,23 @@ steps:
 `hooks` is a path relative to the spec file. It points at an ES module with two optional exports:
 
 ```js
-export async function setup({ spec, page }) {
+export async function setup({ spec }) {
   const user = await leaseUser();     // your test-data service, a DB pool, a JSON file...
   return { user };                    // becomes ${hooks.user.*}
 }
 
-export async function teardown({ spec, page, data, result }) {
+export async function teardown({ spec, data, result }) {
   await releaseUser(data.user);       // data is what setup returned
   console.error(`released ${data.user.name} (run ${result.status})`);
 }
 ```
 
-- `setup` runs once, before the first step, with the Playwright `page` already open. What it returns
+Hooks run in their own child process, one per spec run — so module-level state (a variable, counter
+or cache set outside `setup`/`teardown`) never leaks between specs, and `--workers` cannot make one
+spec's hooks interfere with another's. The arguments above and the data `setup` returns cross a JSON
+channel to that process, so return plain data only: a function or class instance is silently dropped.
+
+- `setup` runs once, before the first step, in its own process (no Playwright `page`). What it returns
   becomes `${hooks.*}` in `url` and in every step string, and is passed to `teardown` as `data`.
 - `teardown` runs after every successful `setup`, whether the steps passed, failed or errored, so a
   lease is never left behind. `result` is `{ status, steps }` for the run so far.
@@ -67,9 +72,7 @@ Hooks work in agent mode too: pass `hooks` to the `open` tool. See [agent-mode.m
 
 ## Isolation with `--workers`
 
-Hooks are plain Node code running inside the plainwright process. With `--workers N`, several specs'
-`setup`/`teardown` can run at the same time in that one process, and Node caches an imported hooks
-module per path, so two specs sharing a `hooks` file share the same module instance. Because of that,
-hooks must not rely on module-level state (a variable, counter or cache set outside `setup`/`teardown`)
-or on exclusive access to an external resource (a fixed file path, a single DB connection) — keeping a
-spec's hooks isolated from another spec's is the spec author's responsibility.
+Each spec run forks its own hooks child process, so two specs sharing a `hooks` file never share a
+module instance — even with `--workers N` running several specs at once. What isolation doesn't buy
+you: exclusive access to an external resource (a fixed file path, a single DB connection) is still the
+spec author's responsibility, the same as with any other concurrent test run.

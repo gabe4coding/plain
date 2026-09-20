@@ -6,7 +6,7 @@ import { stringify } from 'yaml';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { parseStep, interpolate } from './spec.js';
-import { openSession, loadHooks, runSetup, closeSharedBrowser } from './runner.js';
+import { openSession, startHooks, closeSharedBrowser } from './runner.js';
 import { runStep, label, resolveLocators } from './steps.js';
 import { snapshot, snapshotRegion, CandidateKindSchema } from './page.js';
 // Leaf paths of `data` as `${hooks.a.b}` placeholders for the `open` response — never the values
@@ -61,8 +61,8 @@ export async function serveMcp(opts) {
     const transcript = [];
     let totalTokens = 0;
     const track = (tokens) => void (totalTokens += tokens);
-    // Hooks module leased by `open {hooks}` — released by runTeardown on the next `open {hooks}` or on shutdown.
-    let hooks = {};
+    // Hooks child leased by `open {hooks}` — released by runTeardown on the next `open {hooks}` or on shutdown.
+    let hooksRunner = null;
     let hooksFile = null;
     let data = {};
     const results = []; // every step result, pass or not, in order — teardown sees the full run
@@ -73,15 +73,14 @@ export async function serveMcp(opts) {
     // Releases the current hooks lease: called when the session ends, or when `open` loads a new
     // hooks module while one is already active. Errors propagate — a teardown failure must not be silent.
     async function runTeardown() {
-        if (hooks.teardown) {
-            await hooks.teardown({
-                spec,
-                page: session.ctx.page,
-                data,
-                result: { status: results.at(-1)?.status ?? 'pass', steps: results },
-            });
+        if (hooksRunner) {
+            const runner = hooksRunner;
+            if (runner.has.teardown) {
+                await runner.teardown({ spec, data, result: { status: results.at(-1)?.status ?? 'pass', steps: results } });
+            }
+            runner.close();
         }
-        hooks = {};
+        hooksRunner = null;
         hooksFile = null;
         data = {};
     }
@@ -111,13 +110,17 @@ export async function serveMcp(opts) {
             const file = resolve(spec.dir, hooksPath);
             if (hooksFile)
                 await runTeardown(); // an agent opening a second flow releases the first lease
+            let runner = null;
             try {
-                hooks = await loadHooks(file);
-                data = await runSetup(hooks, { spec, page: session.ctx.page });
+                runner = await startHooks(file);
+                if (runner.has.setup)
+                    data = await runner.setup(spec);
+                hooksRunner = runner;
                 hooksFile = file;
             }
             catch (err) {
-                hooks = {};
+                runner?.close(); // whatever got started (or nothing, if the fork itself failed) never lingers
+                hooksRunner = null;
                 hooksFile = null;
                 data = {}; // nothing loaded — nothing for teardown to release
                 throw err;

@@ -2,7 +2,8 @@ import { z } from 'zod';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fork, type ChildProcess } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContextOptions, type Page } from 'playwright';
 import { interpolate, type Spec } from './spec.js';
 import { runStep, label, StatusSchema, StepResultSchema, holdActivity, type StepContext, type StepResult, type Status } from './steps.js';
@@ -10,28 +11,73 @@ import { installSettleObserver } from './page.js';
 
 // What a hooks module (`spec.hooks`) may export. Both are optional; anything else is rejected once
 // imported, before the browser opens. Exported so the MCP server can lease the same module shape.
+// No `page`: hooks run in their own child process (see hooks-child.ts), so only JSON-serializable
+// arguments cross the IPC channel.
 export interface HooksModule {
-  setup?: (args: { spec: Spec; page: Page }) => unknown;
-  teardown?: (args: { spec: Spec; page: Page; data: Record<string, unknown>; result: { status: Status; steps: StepResult[] } }) => unknown;
+  setup?: (args: { spec: Spec }) => unknown;
+  teardown?: (args: { spec: Spec; data: Record<string, unknown>; result: { status: Status; steps: StepResult[] } }) => unknown;
 }
 
-// Imports and validates a hooks module — shared by the batch runner and the MCP server's `open
-// {hooks}`, so both fail the same way on a broken module.
-export async function loadHooks(file: string): Promise<HooksModule> {
-  const hooks: HooksModule = await import(pathToFileURL(file).href);
-  if (hooks.setup !== undefined && typeof hooks.setup !== 'function') throw new Error(`${file}: "setup" must be a function`);
-  if (hooks.teardown !== undefined && typeof hooks.teardown !== 'function') throw new Error(`${file}: "teardown" must be a function`);
-  return hooks;
-}
+export type HooksRunner = {
+  has: { setup: boolean; teardown: boolean };
+  setup(spec: Spec): Promise<Record<string, unknown>>;
+  teardown(args: { spec: Spec; data: Record<string, unknown>; result: { status: Status; steps: StepResult[] } }): Promise<void>;
+  close(): void; // kills the child
+};
 
-// Runs `hooks.setup` if present and applies the "setup must return an object" rule — `{}` when
-// there's no setup or it returned undefined, so callers always get a usable `${hooks.*}` bag.
-export async function runSetup(hooks: HooksModule, args: { spec: Spec; page: Page }): Promise<Record<string, unknown>> {
-  if (!hooks.setup) return {};
-  const returned = await hooks.setup(args);
-  if (returned === undefined) return {};
-  if (returned === null || typeof returned !== 'object') throw new Error('setup must return an object');
-  return returned as Record<string, unknown>;
+type ChildReply = { type: string; ok?: boolean; data?: Record<string, unknown>; message?: string; has?: { setup: boolean; teardown: boolean } };
+
+// Forks src/hooks-child.ts (compiled next to this file) to import and validate a hooks module in its
+// own process — one child per spec run, so module-level state never leaks between specs and
+// concurrent specs (--workers) never share a module instance. Shared by the batch runner and the MCP
+// server's `open {hooks}`, so both fail the same way on a broken module. Requests are sequential
+// (one in flight at a time): a simple one-pending-reply pattern is enough for setup/teardown.
+export async function startHooks(file: string): Promise<HooksRunner> {
+  const child: ChildProcess = fork(fileURLToPath(new URL('./hooks-child.js', import.meta.url)), [file]);
+
+  let pending: { resolve: (msg: ChildReply) => void; reject: (err: Error) => void } | null = null;
+  child.on('message', (msg: ChildReply) => {
+    pending?.resolve(msg);
+    pending = null;
+  });
+  const onGone = (reason: string): void => {
+    pending?.reject(new Error(`hooks child for ${file} ${reason}`));
+    pending = null;
+  };
+  child.on('exit', (code) => onGone(`exited (code ${code}) before responding`));
+  child.on('error', (err) => onGone(`failed: ${err.message}`));
+
+  function next(): Promise<ChildReply> {
+    return new Promise((resolve, reject) => (pending = { resolve, reject }));
+  }
+
+  const first = await next(); // the child sends 'ready' or 'error' as soon as it has imported and validated the module
+  if (first.type === 'error') {
+    child.kill();
+    throw new Error(first.message);
+  }
+
+  async function call(msg: Record<string, unknown>): Promise<ChildReply> {
+    const reply = next();
+    child.send(msg);
+    return reply;
+  }
+
+  return {
+    has: first.has ?? { setup: false, teardown: false },
+    async setup(spec) {
+      const reply = await call({ type: 'setup', spec });
+      if (!reply.ok) throw new Error(reply.message);
+      return reply.data ?? {};
+    },
+    async teardown(args) {
+      const reply = await call({ type: 'teardown', ...args });
+      if (!reply.ok) throw new Error(reply.message);
+    },
+    close() {
+      child.kill();
+    },
+  };
 }
 
 export const TestResultSchema = z.object({
@@ -249,21 +295,23 @@ export async function runSpec(spec: Spec, opts: RunOptions): Promise<TestResult>
     totalTokens += tokens;
   }
 
-  // Imported before the browser opens so a broken hooks module fails fast — no session to clean up yet.
-  let hooks: HooksModule = {};
-  if (spec.hooks) hooks = await loadHooks(spec.hooks);
+  // Forked (own process) and validated before the browser opens, so a broken hooks module fails
+  // fast — no session to clean up yet.
+  let hooksRunner: HooksRunner | null = null;
+  if (spec.hooks) hooksRunner = await startHooks(spec.hooks);
 
   const session = await openSession(spec, opts, track);
 
-  // What setup returns, exposed to steps/teardown as `${hooks.*}`/`data` — `{}` when there's no setup.
+  // What setup returns, exposed to steps/teardown as `${hooks.*}`/`data` — `{}` when there's no hooks.
   let data: Record<string, unknown> = {};
-  if (hooks.setup) {
+  if (hooksRunner?.has.setup) {
     try {
-      data = await runSetup(hooks, { spec, page: session.ctx.page });
+      data = await hooksRunner.setup(spec);
       steps.push({ step: 'setup', status: 'pass' });
     } catch (err) {
-      // Nothing ran yet, so there's nothing for teardown to release — just close the browser.
+      // Nothing ran yet, so there's nothing for teardown to release — just close the browser and the hooks child.
       await session.close();
+      hooksRunner.close();
       return {
         name: spec.name,
         status: 'error',
@@ -314,14 +362,18 @@ export async function runSpec(spec: Spec, opts: RunOptions): Promise<TestResult>
       }
     }
   } finally {
-    // Runs whenever setup succeeded (or there was none) — a cleanup failure must never be silent.
-    if (hooks.teardown) {
+    // Runs if the module has a teardown — a cleanup failure must never be silent.
+    if (hooksRunner) {
       try {
-        await hooks.teardown({ spec, page: session.ctx.page, data, result: { status: overall, steps } });
-        steps.push({ step: 'teardown', status: 'pass' });
+        if (hooksRunner.has.teardown) {
+          await hooksRunner.teardown({ spec, data, result: { status: overall, steps } });
+          steps.push({ step: 'teardown', status: 'pass' });
+        }
       } catch (err) {
         overall = 'error';
         steps.push({ step: 'teardown', status: 'error', detail: err instanceof Error ? err.message : String(err) });
+      } finally {
+        hooksRunner.close(); // the child never lingers past its one spec run
       }
     }
     await session.close();

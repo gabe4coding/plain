@@ -73,14 +73,16 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   pass across them. `check`/`uncheck` read the state (a control's `checked`, following a label, or
   aria-checked/aria-pressed) and click only when it must change (`setChecked`); `scroll: top|bottom` (and spoken
   forms, `scrollEdge`) scrolls `document.scrollingElement` and reports the distance.
-- `src/runner.ts` — `runSpec()`: import the hooks module first (fails fast, before the browser opens) → open a
+- `src/runner.ts` — `runSpec()`: fork the hooks child first (fails fast, before the browser opens) → open a
   session → `setup()` → interpolate `url`/`steps` with `{env, hooks: data}` → run steps → `teardown()` in
-  `finally` → close. `Status` is `pass | fail | inconclusive | error | skipped`. A setup error yields a single
-  `setup` step and `error`, with no teardown; a teardown error always makes the run `error`. Exports
-  `HooksModule`, `loadHooks`, `runSetup` for reuse by `src/mcp.ts`.
+  `finally` → close the child → close the session. `Status` is `pass | fail | inconclusive | error | skipped`.
+  A setup error yields a single `setup` step and `error`, with no teardown; a teardown error always makes the
+  run `error`. Exports `HooksModule` (the type), `HooksRunner`, `startHooks` for reuse by `src/mcp.ts`.
 - Hooks contract: an ES module next to the spec (`hooks:`, resolved relative to the spec file) with optional
-  `setup({spec, page})` (its return becomes `${hooks.*}`) and `teardown({spec, page, data, result})`. Dataset
-  shape is not imposed. See `examples/login-dataset.yaml` + `examples/hooks/login-dataset.mjs`.
+  `setup({spec})` (its return becomes `${hooks.*}`) and `teardown({spec, data, result})`, run in its own child
+  process (`src/hooks-child.ts`, forked by `startHooks`) — one per spec run, so module-level state never leaks
+  between specs and `--workers` can't make hooks interfere. Only JSON crosses the IPC channel. Dataset shape is
+  not imposed. See `examples/login-dataset.yaml` + `examples/hooks/login-dataset.mjs`.
 - `src/mcp.ts` — MCP server over stdio with one persistent browser session; tools `open`, `step`, `find`,
   `snapshot` (whole page or `within` a region), `evaluate` (a JS expression's JSON value), `save`. `snapshot` and
   `evaluate` read without acting and are not recorded. `save` writes a YAML spec with `${hooks.*}` placeholders kept and `hooks:` relative to the

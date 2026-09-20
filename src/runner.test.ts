@@ -4,7 +4,7 @@ import { writeFileSync, mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSpec } from './spec.js';
-import { runSpec, openSession, sharedBrowser, closeSharedBrowser, mapLimit } from './runner.js';
+import { runSpec, openSession, sharedBrowser, closeSharedBrowser, mapLimit, startHooks } from './runner.js';
 import { chromium } from 'playwright';
 
 const OPTS = { headed: false, timeout: 5000 };
@@ -157,6 +157,40 @@ steps:
 });
 
 const HI_SPEC = 'name: hi\nurl: "data:text/html,<h1>hi</h1>"\nsteps:\n  - goto: "data:text/html,<h1>hi</h1>"\n';
+
+test('startHooks: each runner forks its own process, so module-level state never leaks between them', async () => {
+  const dir = tempDir();
+  const file = join(dir, 'counter.mjs');
+  writeFileSync(file, 'let counter = 0;\nexport async function setup() { return { n: ++counter }; }\n');
+  const spec = loadSpec(writeSpec(dir, HI_SPEC));
+
+  const a = await startHooks(file);
+  const b = await startHooks(file);
+  try {
+    const dataA = await a.setup(spec);
+    const dataB = await b.setup(spec);
+    // In-process (the old `import()`-based loader) the second call would see counter === 2.
+    assert.equal(dataA.n, 1);
+    assert.equal(dataB.n, 1);
+  } finally {
+    a.close();
+    b.close();
+  }
+});
+
+test('startHooks: `has` reports which lifecycle functions the module actually exports', async () => {
+  const dir = tempDir();
+  const file = join(dir, 'setup-only.mjs');
+  writeFileSync(file, 'export async function setup() { return {}; }\n');
+
+  const runner = await startHooks(file);
+  try {
+    assert.equal(runner.has.setup, true);
+    assert.equal(runner.has.teardown, false);
+  } finally {
+    runner.close();
+  }
+});
 
 test('--profile: the persistent profile dir is created and the run passes', async () => {
   const dir = tempDir();
