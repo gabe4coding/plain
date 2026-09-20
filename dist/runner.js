@@ -5,6 +5,28 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { interpolate } from './spec.js';
 import { runStep, label } from './steps.js';
+// Imports and validates a hooks module — shared by the batch runner and the MCP server's `open
+// {hooks}`, so both fail the same way on a broken module.
+export async function loadHooks(file) {
+    const hooks = await import(pathToFileURL(file).href);
+    if (hooks.setup !== undefined && typeof hooks.setup !== 'function')
+        throw new Error(`${file}: "setup" must be a function`);
+    if (hooks.teardown !== undefined && typeof hooks.teardown !== 'function')
+        throw new Error(`${file}: "teardown" must be a function`);
+    return hooks;
+}
+// Runs `hooks.setup` if present and applies the "setup must return an object" rule — `{}` when
+// there's no setup or it returned undefined, so callers always get a usable `${hooks.*}` bag.
+export async function runSetup(hooks, args) {
+    if (!hooks.setup)
+        return {};
+    const returned = await hooks.setup(args);
+    if (returned === undefined)
+        return {};
+    if (returned === null || typeof returned !== 'object')
+        throw new Error('setup must return an object');
+    return returned;
+}
 const MAX_EVENTS = 30; // ponytail: cap what's sent to Jev as `events` — a long spec shouldn't grow this unbounded
 // Launches the browser/context/page for one spec and wires up the listeners every step relies on
 // (dialogs, popups, downloads, console/page errors). Shared by the batch runner below and by the
@@ -88,24 +110,14 @@ export async function runSpec(spec, opts) {
     }
     // Imported before the browser opens so a broken hooks module fails fast — no session to clean up yet.
     let hooks = {};
-    if (spec.hooks) {
-        hooks = await import(pathToFileURL(spec.hooks).href);
-        if (hooks.setup !== undefined && typeof hooks.setup !== 'function')
-            throw new Error(`${spec.hooks}: "setup" must be a function`);
-        if (hooks.teardown !== undefined && typeof hooks.teardown !== 'function')
-            throw new Error(`${spec.hooks}: "teardown" must be a function`);
-    }
+    if (spec.hooks)
+        hooks = await loadHooks(spec.hooks);
     const session = await openSession(spec, opts, track);
     // What setup returns, exposed to steps/teardown as `${hooks.*}`/`data` — `{}` when there's no setup.
     let data = {};
     if (hooks.setup) {
         try {
-            const returned = await hooks.setup({ spec, page: session.ctx.page });
-            if (returned !== undefined) {
-                if (returned === null || typeof returned !== 'object')
-                    throw new Error('setup must return an object');
-                data = returned;
-            }
+            data = await runSetup(hooks, { spec, page: session.ctx.page });
             steps.push({ step: 'setup', status: 'pass' });
         }
         catch (err) {

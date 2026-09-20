@@ -1,14 +1,26 @@
 import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 import { z } from 'zod';
 import { stringify } from 'yaml';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Spec } from './spec.js';
-import { parseStep } from './spec.js';
-import { openSession, type Session } from './runner.js';
-import { runStep, label, resolveLocators } from './steps.js';
+import { parseStep, interpolate } from './spec.js';
+import { openSession, loadHooks, runSetup, type Session, type HooksModule } from './runner.js';
+import { runStep, label, resolveLocators, type StepResult } from './steps.js';
 import { snapshot } from './page.js';
+
+// Leaf paths of `data` as `${hooks.a.b}` placeholders for the `open` response — never the values
+// themselves, since leased data can be credentials. Arrays and non-object leaves are leaves.
+function placeholderPaths(obj: Record<string, unknown>, prefix: string): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const path = `${prefix}.${k}`;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) out.push(...placeholderPaths(v as Record<string, unknown>, path));
+    else out.push('${' + path + '}');
+  }
+  return out;
+}
 
 const STEP_DESCRIPTION = `Run one step in the persistent browser session (call \`open\` first).
 
@@ -36,7 +48,12 @@ Rules: describe ONE element with one clear answer — "the earliest available da
 available day". Disambiguate siblings — "the cuisine input (not the where field)". Name things as
 the accessibility tree does (heading, button, link, textbox). Expect claims are atomic, one fact
 each. status is pass | fail | inconclusive | error; on inconclusive the detail lists the top
-guesses with probabilities — rephrase and retry.`;
+guesses with probabilities — rephrase and retry.
+
+When \`open\` was called with \`hooks\`, any string in a step may contain \`\${hooks.a.b}\` placeholders
+(the \`open\` response lists the ones available); they are resolved right before the step runs and
+kept as written when \`save\` writes the spec, so the saved spec stays dataset-driven. \${env.*} is
+not available in this session — add it to the YAML yourself after saving.`;
 
 export async function serveMcp(opts: { headed: boolean; timeout: number }): Promise<void> {
   let session: Session | null = null;
@@ -45,25 +62,70 @@ export async function serveMcp(opts: { headed: boolean; timeout: number }): Prom
   let totalTokens = 0;
   const track = (tokens: number): void => void (totalTokens += tokens);
 
+  // Hooks module leased by `open {hooks}` — released by runTeardown on the next `open {hooks}` or on shutdown.
+  let hooks: HooksModule = {};
+  let hooksFile: string | null = null;
+  let data: Record<string, unknown> = {};
+  const results: StepResult[] = []; // every step result, pass or not, in order — teardown sees the full run
+
   const server = new McpServer({ name: 'jev-e2e', version: '1.0.0' });
 
   function ok(data: unknown) {
     return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
   }
 
+  // Releases the current hooks lease: called when the session ends, or when `open` loads a new
+  // hooks module while one is already active. Errors propagate — a teardown failure must not be silent.
+  async function runTeardown(): Promise<void> {
+    if (hooks.teardown) {
+      await hooks.teardown({
+        spec,
+        page: session!.ctx.page,
+        data,
+        result: { status: results.at(-1)?.status ?? 'pass', steps: results },
+      });
+    }
+    hooks = {};
+    hooksFile = null;
+    data = {};
+  }
+
   server.registerTool(
     'open',
-    { description: 'Open the persistent browser session (first call) or navigate it to a new URL.', inputSchema: { url: z.string() } },
-    async ({ url }) => {
+    {
+      description:
+        "Open the persistent browser session (first call) or navigate it to a new URL. `hooks`: optional path " +
+        "(relative to the server's working directory) of a setup/teardown module, as in a spec's `hooks` key; " +
+        'setup runs now, before the navigation, and its result is available to steps as ${hooks.*}. Teardown runs ' +
+        'when the session ends or when `open` is called again with `hooks`.',
+      inputSchema: { url: z.string(), hooks: z.string().optional() },
+    },
+    async ({ url, hooks: hooksPath }) => {
       if (!session) {
         session = await openSession(spec, opts, track);
         spec.url = url;
+      }
+      if (hooksPath) {
+        const file = resolve(spec.dir, hooksPath);
+        if (hooksFile) await runTeardown(); // an agent opening a second flow releases the first lease
+        try {
+          hooks = await loadHooks(file);
+          data = await runSetup(hooks, { spec, page: session.ctx.page });
+          hooksFile = file;
+        } catch (err) {
+          hooks = {};
+          hooksFile = null;
+          data = {}; // nothing loaded — nothing for teardown to release
+          throw err;
+        }
       }
       const result = await runStep(session.ctx, { kind: 'goto', url });
       if (result.status === 'error') throw new Error(result.detail ?? 'goto failed');
       transcript.push({ goto: url }); // so `save` replays the navigation too
       const title = await session.ctx.page.title();
-      return ok({ url: session.ctx.page.url(), title, notes: session.drainNotes() });
+      const response: Record<string, unknown> = { url: session.ctx.page.url(), title, notes: session.drainNotes() };
+      if (hooksFile) response.placeholders = placeholderPaths(data, 'hooks');
+      return ok(response);
     }
   );
 
@@ -73,11 +135,13 @@ export async function serveMcp(opts: { headed: boolean; timeout: number }): Prom
     const before = totalTokens;
     let result;
     try {
-      result = await runStep(session.ctx, parsed);
+      const resolved = interpolate(parsed, { env: {}, hooks: data }, 'mcp'); // ${hooks.*} placeholders, resolved just before running
+      result = await runStep(session.ctx, resolved);
     } catch (err) {
       result = { step: label(parsed), status: 'error' as const, detail: err instanceof Error ? err.message : String(err) };
     }
-    if (result.status === 'pass') transcript.push(step); // failed attempts are exploration, not spec
+    results.push(result);
+    if (result.status === 'pass') transcript.push(step); // failed attempts are exploration, not spec — placeholders kept intact for `save`
     return ok({ status: result.status, detail: result.detail, notes: session.drainNotes(), url: session.ctx.page.url(), jevTokens: totalTokens - before });
   });
 
@@ -89,6 +153,7 @@ export async function serveMcp(opts: { headed: boolean; timeout: number }): Prom
     },
     async ({ kind, target }) => {
       if (!session) throw new Error('call open first');
+      target = interpolate(target, { env: {}, hooks: data }, 'mcp');
       const before = totalTokens;
       const [r] = await resolveLocators(session.ctx.page, kind, [target]);
       if (r.usedJev) track(r.tokens);
@@ -112,17 +177,34 @@ export async function serveMcp(opts: { headed: boolean; timeout: number }): Prom
 
   server.registerTool(
     'save',
-    { description: 'Save the steps that passed so far in this session as a YAML spec the batch runner can replay (failed or inconclusive attempts are left out).', inputSchema: { path: z.string(), name: z.string().optional() } },
+    {
+      description:
+        'Save the steps that passed so far in this session as a YAML spec the batch runner can replay (failed or ' +
+        'inconclusive attempts are left out). The `hooks` module given to `open` is written as a relative path, ' +
+        'and ${hooks.*} placeholders are kept as written.',
+      inputSchema: { path: z.string(), name: z.string().optional() },
+    },
     async ({ path, name }) => {
-      const yaml = stringify({ name: name ?? spec.name, url: spec.url, steps: transcript });
       const filePath = resolve(path);
-      writeFileSync(filePath, yaml);
+      const doc: Record<string, unknown> = { name: name ?? spec.name, url: spec.url };
+      if (hooksFile) {
+        let rel = relative(dirname(filePath), hooksFile);
+        if (!rel.startsWith('.')) rel = './' + rel;
+        doc.hooks = rel;
+      }
+      doc.steps = transcript;
+      writeFileSync(filePath, stringify(doc));
       return ok({ path: filePath, steps: transcript.length });
     }
   );
 
   const transport = new StdioServerTransport();
   const shutdown = async (): Promise<void> => {
+    try {
+      await runTeardown();
+    } catch (err) {
+      console.error('jev-e2e: teardown failed: ' + (err instanceof Error ? err.message : String(err)));
+    }
     await session?.close();
     process.exit(0);
   };

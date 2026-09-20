@@ -147,6 +147,13 @@ pick; `snapshot {maxChars}` returns the aria tree as an escape hatch when rephra
 name}` writes everything run so far as a spec the batch runner replays. Rejected picks come back `inconclusive`
 with the top guesses in `detail`, so the agent can rephrase and retry.
 
+`open` also takes an optional `hooks` path (relative to the server's working directory), the same setup/teardown
+module a spec's `hooks` key points at. Setup runs before the navigation, so it can set cookies or lease dataset
+rows first; its result is available to every `step`/`find` as `${hooks.*}`, listed by path (never by value) in
+`open`'s response. `save` keeps the placeholders as written and writes `hooks:` as a path relative to the saved
+file, so the resulting spec stays dataset-driven. Teardown runs when the session ends, or right away if `open` is
+called again with a new `hooks` module.
+
 ### Install as a Claude Code plugin
 
 This repo is also a Claude Code plugin: it ships the MCP server (root `.mcp.json`) and the
