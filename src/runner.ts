@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { chromium, type BrowserContextOptions, type Page } from 'playwright';
 import { interpolate, type Spec } from './spec.js';
 import { runStep, label, StatusSchema, StepResultSchema, type StepContext, type StepResult, type Status } from './steps.js';
+import { installSettleObserver } from './page.js';
 
 // What a hooks module (`spec.hooks`) may export. Both are optional; anything else is rejected once
 // imported, before the browser opens. Exported so the MCP server can lease the same module shape.
@@ -107,6 +108,8 @@ export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: 
   // so every step below must read this variable rather than capturing the initial page.
   let page = opened.page;
   page.setDefaultTimeout(opts.timeout);
+  // Over CDP the context is the user's live browser: keep the observer to our own tab, leave theirs alone.
+  await installSettleObserver(opts.cdp ? page : page.context());
 
   const acceptDialogs = spec.dialogs !== 'dismiss';
   let pendingNotes: string[] = [];

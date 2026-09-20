@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium, type Browser, type Page } from 'playwright';
-import { candidates } from './page.js';
+import { candidates, installSettleObserver, settle } from './page.js';
 
 let browser: Browser;
 let page: Page;
@@ -42,4 +42,22 @@ test('candidates: check lists a label standing in for its sizeless checkbox, ari
   );
   const descs = (await candidates(page, 'check', 254)).map((c) => c.desc);
   assert.deepEqual(descs, ['label "Hotels"', 'button "4 Stars"', 'input[type=checkbox] value="on" id="v"']);
+});
+
+test('settle: resolves immediately when the DOM has already been quiet for quietMs, waits out ongoing mutations to the cap', async () => {
+  await installSettleObserver(page);
+  await page.goto('about:blank'); // addInitScript only fires on a real navigation, not on setContent() reusing the doc
+  await page.setContent('<body><p>x</p></body>');
+  await new Promise((r) => setTimeout(r, 600));
+  const quietStart = Date.now();
+  await settle(page);
+  assert.ok(Date.now() - quietStart < 150, 'already-quiet page should settle immediately');
+
+  await page.evaluate(() => {
+    setInterval(() => document.body.appendChild(document.createElement('span')), 100);
+  });
+  await new Promise((r) => setTimeout(r, 150)); // let at least one tick land so settle sees a recent mutation, not a stale one
+  const busyStart = Date.now();
+  await settle(page, 500, 1500);
+  assert.ok(Date.now() - busyStart >= 1000, 'continuously-mutating page should wait out to near the cap');
 });

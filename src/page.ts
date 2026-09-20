@@ -1,6 +1,6 @@
 import { StepKind } from './step-kind.js';
 import { z } from 'zod';
-import type { Page, Frame, Locator } from 'playwright';
+import type { Page, Frame, Locator, BrowserContext } from 'playwright';
 
 export const CandidateSchema = z.object({
   id: z.number(),
@@ -40,12 +40,44 @@ const SELECTORS: Record<CandidateKind, string> = {
   region: REGION_SELECTOR,
 };
 
-/** Wait until the DOM stops mutating for `quietMs` (debounced autocompletes, modals), giving up after `maxMs`. */
+declare global {
+  interface Window {
+    __plainwrightLastMutation?: number;
+  }
+}
+
+/**
+ * Installs a MutationObserver at document start in every new document of `target` (a page, or a context
+ * so popups inherit it), recording the time
+ * of the last DOM mutation on `window.__plainwrightLastMutation`. `settle()` reads it to tell a page
+ * that's already quiet from one that still needs to wait out the rest of its quiet window.
+ */
+export async function installSettleObserver(target: Page | BrowserContext): Promise<void> {
+  await target.addInitScript(() => {
+    window.__plainwrightLastMutation = performance.now();
+    new MutationObserver(() => {
+      window.__plainwrightLastMutation = performance.now();
+    }).observe(document, { childList: true, subtree: true, attributes: true });
+  });
+}
+
+/**
+ * Wait until the DOM stops mutating for `quietMs` (debounced autocompletes, modals), giving up after
+ * `maxMs`. Retroactive: if `installSettleObserver` recorded the DOM as already quiet for `quietMs`,
+ * resolves immediately; otherwise waits only the remaining quiet time. Falls back to a full `quietMs`
+ * prospective wait when the observer wasn't installed (e.g. an existing tab attached over CDP).
+ */
 export function settle(page: Page, quietMs = 500, maxMs = 3000): Promise<void> {
   return page.evaluate(
     ({ quietMs, maxMs }) =>
       new Promise<void>((resolve) => {
-        let timer = setTimeout(done, quietMs);
+        const last = window.__plainwrightLastMutation;
+        if (typeof last === 'number' && performance.now() - last >= quietMs) {
+          resolve();
+          return;
+        }
+        const initialWait = typeof last === 'number' ? quietMs - (performance.now() - last) : quietMs;
+        let timer = setTimeout(done, initialWait);
         const obs = new MutationObserver(() => {
           clearTimeout(timer);
           timer = setTimeout(done, quietMs);
