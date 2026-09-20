@@ -149,7 +149,7 @@ export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: 
   }
   attach(page);
 
-  const ctx: StepContext = { get page() { return page; }, spec, timeout: opts.timeout, events, track };
+  const ctx: StepContext = { get page() { return page; }, spec, timeout: opts.timeout, events, track, ms: {} };
 
   return {
     ctx,

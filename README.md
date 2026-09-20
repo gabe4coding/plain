@@ -56,6 +56,7 @@ did not land). The exit code is 0 only when every spec passes.
 ```sh
 node bin/plainwright.mjs --headless spec.yaml other.yaml   # hide the browser, run several specs
 node bin/plainwright.mjs --timeout 30000 spec.yaml         # per-action timeout in ms, default 15000
+node bin/plainwright.mjs --timing spec.yaml                # print per-step/spec/run phase timings (settle, jev, action, ...)
 node bin/plainwright.mjs --profile ~/.plainwright spec.yaml   # persistent profile: log in once, stay logged in
 node bin/plainwright.mjs --profile ~/.plainwright --channel chrome spec.yaml   # same, in your installed Google Chrome
 node bin/plainwright.mjs --cdp http://127.0.0.1:9222 spec.yaml   # drive a Chrome you already have open

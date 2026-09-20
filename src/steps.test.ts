@@ -11,7 +11,7 @@ before(async () => {
   browser = await chromium.launch({ headless: true });
   page = await browser.newPage();
   page.setDefaultTimeout(5000);
-  ctx = { page, spec: { name: 't', url: '', dir: process.cwd(), dialogs: 'accept', steps: [] }, timeout: 5000, events: [], track: () => {} };
+  ctx = { page, spec: { name: 't', url: '', dir: process.cwd(), dialogs: 'accept', steps: [] }, timeout: 5000, events: [], track: () => {}, ms: {} };
 });
 after(() => browser.close());
 

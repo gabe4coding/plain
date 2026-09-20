@@ -24,8 +24,17 @@ export const StepResultSchema = z.object({
   step: z.string(),
   status: StatusSchema,
   detail: z.string().optional(),
+  ms: z.record(z.string(), z.number()).optional(),
 });
 export type StepResult = z.infer<typeof StepResultSchema>;
+
+// Formats a step's `ms` phase timings for --timing output, e.g. "total=3985 settle=512 jev=1830" —
+// `total` first (if present), then the rest in insertion order, only phases actually recorded.
+export function formatMs(ms: Record<string, number>): string {
+  const keys = Object.keys(ms);
+  const ordered = keys.includes('total') ? ['total', ...keys.filter((k) => k !== 'total')] : keys;
+  return ordered.map((k) => `${k}=${ms[k]}`).join(' ');
+}
 
 export function label(step: Step): string {
   switch (step.kind) {
@@ -66,18 +75,28 @@ export function label(step: Step): string {
   }
 }
 
+// Adds the elapsed ms of `fn` into ctx.ms[phase] — phases accumulate across multiple calls in the
+// same step (e.g. one `settle` per wait poll) since this is a per-step accumulator reset in runStep().
+export async function timed<T>(ctx: StepContext, phase: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  const result = await fn();
+  ctx.ms[phase] = (ctx.ms[phase] ?? 0) + (Date.now() - start);
+  return result;
+}
+
 /**
  * Run an action that may trigger a navigation (click on a link-like element, Enter in a form) and, if one
  * starts within a short window, wait for the new document to load. Without this the next step reads the
  * old page while the navigation is in flight and can fire a second navigation on top of it.
  */
-async function mayNavigate(page: Page, action: () => Promise<void>): Promise<void> {
+async function mayNavigate(ctx: StepContext, action: () => Promise<void>): Promise<void> {
+  const page = ctx.page;
   const nav = page
     .waitForEvent('framenavigated', { timeout: 1500, predicate: (f) => f === page.mainFrame() })
     .then(() => page.waitForLoadState('load'))
     .catch(() => {}); // no navigation started — that's fine
-  await action();
-  await nav;
+  await timed(ctx, 'action', action);
+  await timed(ctx, 'post', () => nav);
 }
 
 function resolveUrl(base: string, path: string): string {
@@ -127,7 +146,8 @@ export interface Resolved {
 // share ONE settle + ONE candidate scan + ONE pickElements() request (one request = one Jev call —
 // only the first Jev-resolved entry carries usedJev/tokens, matching pickElements()'s own contract).
 // Results come back in the same order as `targets`.
-export async function resolveLocators(page: Page, kind: CandidateKind, targets: string[]): Promise<Resolved[]> {
+export async function resolveLocators(ctx: StepContext, kind: CandidateKind, targets: string[]): Promise<Resolved[]> {
+  const page = ctx.page;
   const results: Resolved[] = new Array(targets.length);
   const jevIndices: number[] = [];
   const jevTargets: string[] = [];
@@ -145,9 +165,10 @@ export async function resolveLocators(page: Page, kind: CandidateKind, targets: 
   if (jevTargets.length > 0) {
     // Let debounced autocompletes, modals etc. finish rendering before we look (networkidle fires too early:
     // it sees the quiet gap *before* a debounced request starts).
-    await settle(page).catch(() => {});
-    const cands = await candidates(page, kind, MAX_CANDIDATES);
-    const picks = await pickElements(cands, jevTargets, { url: page.url(), title: await page.title() });
+    await timed(ctx, 'settle', () => settle(page).catch(() => {}));
+    const cands = await timed(ctx, 'candidates', () => candidates(page, kind, MAX_CANDIDATES));
+    const title = await page.title();
+    const picks = await timed(ctx, 'jev', () => pickElements(cands, jevTargets, { url: page.url(), title }));
 
     jevIndices.forEach((origIndex, j) => {
       const { id, probability, confidence, probabilities, tokens } = picks[j];
@@ -181,8 +202,8 @@ export async function resolveLocators(page: Page, kind: CandidateKind, targets: 
   return results;
 }
 
-async function resolveLocator(page: Page, kind: CandidateKind, target: string): Promise<Resolved> {
-  return (await resolveLocators(page, kind, [target]))[0];
+async function resolveLocator(ctx: StepContext, kind: CandidateKind, target: string): Promise<Resolved> {
+  return (await resolveLocators(ctx, kind, [target]))[0];
 }
 
 export interface StepContext {
@@ -193,6 +214,9 @@ export interface StepContext {
   timeout: number;
   events: string[];
   track: (tokens: number) => void;
+  // Per-step phase-timing accumulator, reset to {} at the top of runStep(). Always populated
+  // (whether or not --timing is passed); only the CLI decides whether to print it.
+  ms: Record<string, number>;
 }
 
 function trackResolved(ctx: StepContext, r: Resolved): void {
@@ -208,7 +232,7 @@ async function withResolved(
   stepLabel: string,
   act: (loc: Locator) => Promise<string | void>
 ): Promise<StepResult> {
-  const r = await resolveLocator(ctx.page, kind, target);
+  const r = await resolveLocator(ctx, kind, target);
   trackResolved(ctx, r);
   if (!r.locator) return { step: stepLabel, status: 'inconclusive', detail: r.detail };
   const extra = await act(r.locator);
@@ -223,7 +247,7 @@ async function judgeSnapshot(ctx: StepContext, snap: Snapshot, claims: string[])
   for (;;) {
     try {
       const { url, title, aria } = s;
-      const { probabilities, tokens } = await judge({ url, title, aria, events: ctx.events }, claims);
+      const { probabilities, tokens } = await timed(ctx, 'jev', () => judge({ url, title, aria, events: ctx.events }, claims));
       ctx.track(tokens);
       return { probabilities };
     } catch (err) {
@@ -268,7 +292,7 @@ function scrollEdge(target: string): 'top' | 'bottom' | null {
 }
 
 async function runDrag(ctx: StepContext, step: Extract<Step, { kind: typeof StepKind.drag }>, stepLabel: string): Promise<StepResult> {
-  const [rs, rt] = await resolveLocators(ctx.page, StepKind.click, [step.source, step.target]);
+  const [rs, rt] = await resolveLocators(ctx, StepKind.click, [step.source, step.target]);
   trackResolved(ctx, rs);
   trackResolved(ctx, rt);
   if (!rs.locator) {
@@ -283,11 +307,15 @@ async function runDrag(ctx: StepContext, step: Extract<Step, { kind: typeof Step
   // hover/mousedown/hover/hover/mouseup sequence Playwright's own docs recommend for
   // that case instead — there's no cheap, site-agnostic way to tell from inside this
   // generic step whether dragTo() actually took visual effect.
-  await rs.locator.hover();
-  await ctx.page.mouse.down();
-  await rt.locator.hover();
-  await rt.locator.hover();
-  await ctx.page.mouse.up();
+  const source = rs.locator;
+  const dest = rt.locator;
+  await timed(ctx, 'action', async () => {
+    await source.hover();
+    await ctx.page.mouse.down();
+    await dest.hover();
+    await dest.hover();
+    await ctx.page.mouse.up();
+  });
   return { step: stepLabel, status: 'pass', detail: `${rs.detail} → ${rt.detail}` };
 }
 
@@ -303,11 +331,12 @@ async function runWait(ctx: StepContext, step: Extract<Step, { kind: typeof Step
   let lastSnap: Snapshot | null = null;
   let passed = false;
   while (polls < MAX_POLLS && Date.now() < deadline) {
-    await settle(ctx.page).catch(() => {});
-    const snap = await snapshot(ctx.page);
+    await timed(ctx, 'settle', () => settle(ctx.page).catch(() => {}));
+    const snap = await timed(ctx, 'snapshot', () => snapshot(ctx.page));
     const { probabilities } = await judgeSnapshot(ctx, snap, [step.condition]);
     const probability = probabilities[0];
     polls++;
+    ctx.ms.polls = polls;
     lastProbability = probability;
     lastSnap = snap;
     if (decide(probability, 'expect') === 'pass') {
@@ -345,83 +374,99 @@ async function runExpect(ctx: StepContext, step: Extract<Step, { kind: typeof St
     return { step: stepLabel, status, detail };
   };
   if (step.within) {
-    const r = await resolveLocator(ctx.page, 'region', step.within);
+    const r = await resolveLocator(ctx, 'region', step.within);
     trackResolved(ctx, r);
     if (!r.locator) {
       return { step: stepLabel, status: 'inconclusive', detail: r.detail };
     }
-    return judgeExpectations(await snapshotRegion(ctx.page, r.locator));
+    return judgeExpectations(await timed(ctx, 'snapshot', () => snapshotRegion(ctx.page, r.locator!)));
   }
-  await settle(ctx.page).catch(() => {}); // SPA route changes resolve 'load' instantly; wait for the content
-  return judgeExpectations(await snapshot(ctx.page));
+  await timed(ctx, 'settle', () => settle(ctx.page).catch(() => {})); // SPA route changes resolve 'load' instantly; wait for the content
+  return judgeExpectations(await timed(ctx, 'snapshot', () => snapshot(ctx.page)));
 }
 
+// Resets the per-step timing accumulator, runs the step, and stamps `total` = wall time of the
+// whole step (including any resolve/settle/jev/action/post time nested calls add into ctx.ms).
 export async function runStep(ctx: StepContext, step: Step): Promise<StepResult> {
+  ctx.ms = {};
+  const start = Date.now();
+  const result = await runStepInner(ctx, step);
+  ctx.ms.total = Date.now() - start;
+  return { ...result, ms: { ...ctx.ms } };
+}
+
+async function runStepInner(ctx: StepContext, step: Step): Promise<StepResult> {
   const stepLabel = label(step);
   switch (step.kind) {
     case StepKind.goto: {
       const url = resolveUrl(ctx.spec.url, step.url);
-      await ctx.page.goto(url, { waitUntil: 'load' });
+      await timed(ctx, 'action', () => ctx.page.goto(url, { waitUntil: 'load' }));
       return { step: stepLabel, status: 'pass' };
     }
     case StepKind.press: {
-      await mayNavigate(ctx.page, () => ctx.page.keyboard.press(step.key));
+      await mayNavigate(ctx, () => ctx.page.keyboard.press(step.key));
       return { step: stepLabel, status: 'pass' };
     }
     case StepKind.drag:
       return runDrag(ctx, step, stepLabel);
     case StepKind.mouse: {
-      await ctx.page.mouse.move(step.x, step.y);
+      await timed(ctx, 'action', () => ctx.page.mouse.move(step.x, step.y));
       return { step: stepLabel, status: 'pass' };
     }
     case StepKind.click:
-      return withResolved(ctx, StepKind.click, step.target, stepLabel, (loc) => mayNavigate(ctx.page, () => loc.click()));
+      return withResolved(ctx, StepKind.click, step.target, stepLabel, (loc) => mayNavigate(ctx, () => loc.click()));
     case StepKind.fill:
       return withResolved(ctx, StepKind.fill, step.target, stepLabel, async (loc) => {
-        await loc.fill(step.value);
+        await timed(ctx, 'action', () => loc.fill(step.value));
         // Typing usually fires a debounced request (autocomplete, validation); settle() alone can find
         // a quiet DOM before that request even starts. Give one triggered response a moment to land.
-        await ctx.page
-          .waitForResponse((res) => ['xhr', 'fetch'].includes(res.request().resourceType()), { timeout: 1500 })
-          .catch(() => {});
+        await timed(ctx, 'post', () =>
+          ctx.page.waitForResponse((res) => ['xhr', 'fetch'].includes(res.request().resourceType()), { timeout: 1500 }).catch(() => {})
+        );
       });
     case StepKind.hover:
-      return withResolved(ctx, StepKind.hover, step.target, stepLabel, (loc) => loc.hover());
+      return withResolved(ctx, StepKind.hover, step.target, stepLabel, (loc) => timed(ctx, 'action', () => loc.hover()));
     case StepKind.dblclick:
     case StepKind.rightclick: {
       const dbl = step.kind === StepKind.dblclick;
       return withResolved(ctx, StepKind.click, step.target, stepLabel, (loc) =>
-        mayNavigate(ctx.page, () => (dbl ? loc.dblclick() : loc.click({ button: 'right' })))
+        mayNavigate(ctx, () => (dbl ? loc.dblclick() : loc.click({ button: 'right' })))
       );
     }
     case StepKind.select:
-      return withResolved(ctx, StepKind.select, step.target, stepLabel, async (loc) => {
-        try {
-          await loc.selectOption({ label: step.value });
-        } catch {
-          await loc.selectOption(step.value);
-        }
-      });
+      return withResolved(ctx, StepKind.select, step.target, stepLabel, (loc) =>
+        timed(ctx, 'action', async () => {
+          try {
+            await loc.selectOption({ label: step.value });
+          } catch {
+            await loc.selectOption(step.value);
+          }
+        })
+      );
     case StepKind.check:
     case StepKind.uncheck:
-      return withResolved(ctx, StepKind.check, step.target, stepLabel, (loc) => setChecked(loc, step.kind === StepKind.check));
+      return withResolved(ctx, StepKind.check, step.target, stepLabel, (loc) =>
+        timed(ctx, 'action', () => setChecked(loc, step.kind === StepKind.check))
+      );
     case StepKind.upload:
       return withResolved(ctx, StepKind.upload, step.target, stepLabel, (loc) => {
         const paths = step.files.map((f) => path.resolve(ctx.spec.dir, f));
-        return loc.setInputFiles(paths);
+        return timed(ctx, 'action', () => loc.setInputFiles(paths));
       });
     case StepKind.scroll: {
       const edge = scrollEdge(step.target);
       if (edge) {
         // document.scrollingElement, not body: body.scrollHeight is short of the document on many sites.
         // `instant` so the position read back is final even under `scroll-behavior: smooth`.
-        const [from, to] = await ctx.page.evaluate((edge) => {
-          const el = document.scrollingElement ?? document.documentElement;
-          const from = el.scrollTop;
-          el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'instant' });
-          return [Math.round(from), Math.round(el.scrollTop)];
-        }, edge);
-        await settle(ctx.page).catch(() => {});
+        const [from, to] = await timed(ctx, 'action', () =>
+          ctx.page.evaluate((edge) => {
+            const el = document.scrollingElement ?? document.documentElement;
+            const from = el.scrollTop;
+            el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'instant' });
+            return [Math.round(from), Math.round(el.scrollTop)];
+          }, edge)
+        );
+        await timed(ctx, 'settle', () => settle(ctx.page).catch(() => {}));
         const detail =
           from === to
             ? `did not move (${to}px): already at the ${edge}, or the page scrolls inside an element — scroll that element instead`
@@ -429,8 +474,8 @@ export async function runStep(ctx: StepContext, step: Step): Promise<StepResult>
         return { step: stepLabel, status: 'pass', detail };
       }
       return withResolved(ctx, StepKind.click, step.target, stepLabel, async (loc) => {
-        await loc.scrollIntoViewIfNeeded();
-        await settle(ctx.page).catch(() => {});
+        await timed(ctx, 'action', () => loc.scrollIntoViewIfNeeded());
+        await timed(ctx, 'settle', () => settle(ctx.page).catch(() => {}));
       });
     }
     case StepKind.wait:

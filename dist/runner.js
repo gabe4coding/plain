@@ -131,7 +131,7 @@ export async function openSession(spec, opts, track) {
         });
     }
     attach(page);
-    const ctx = { get page() { return page; }, spec, timeout: opts.timeout, events, track };
+    const ctx = { get page() { return page; }, spec, timeout: opts.timeout, events, track, ms: {} };
     return {
         ctx,
         drainNotes() {

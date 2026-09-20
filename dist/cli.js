@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import { loadSpec } from './spec.js';
 import { runSpec } from './runner.js';
 import { serveMcp } from './mcp.js';
+import { formatMs } from './steps.js';
 import { provider, MODEL_BY_PROVIDER, USER_ENV_FILE } from './jev.js';
 import { homedir } from 'node:os';
 // ponytail: cwd .env first, then the user file; a variable already set in the environment is never overridden
@@ -21,11 +22,12 @@ const { values, positionals } = parseArgs({
         profile: { type: 'string' },
         cdp: { type: 'string' },
         channel: { type: 'string' },
+        timing: { type: 'boolean', default: false },
     },
     allowPositionals: true,
 });
 if (positionals.length === 0) {
-    console.error('usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] [--channel chrome] <spec.yaml> [more.yaml ...] | mcp');
+    console.error('usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] [--channel chrome] [--timing] <spec.yaml> [more.yaml ...] | mcp');
     process.exit(2);
 }
 const opts = {
@@ -61,6 +63,13 @@ else {
         return '✘'; // fail or error
     };
     let allPassed = true;
+    // Sums another step/spec's `ms` phases into `target`, in place — used to roll step ms up to a
+    // per-spec total and per-spec totals up to a per-run total.
+    const addMs = (target, source) => {
+        for (const [k, v] of Object.entries(source))
+            target[k] = (target[k] ?? 0) + v;
+    };
+    const runMs = {};
     for (const file of positionals) {
         try {
             const spec = loadSpec(file);
@@ -68,8 +77,17 @@ else {
             if (result.status !== 'pass')
                 allPassed = false;
             console.log(`${icon(result.status)} ${spec.name}  (${result.jevCalls} Jev calls, ${result.totalTokens} tokens)`);
+            const specMs = {};
             for (const s of result.steps) {
                 console.log(`  ${icon(s.status)} ${s.step}${s.detail ? ' ' + s.detail : ''}`);
+                if (values.timing && s.ms) {
+                    console.log(`    ms ${formatMs(s.ms)}`);
+                    addMs(specMs, s.ms);
+                }
+            }
+            if (values.timing && Object.keys(specMs).length) {
+                console.log(`  ms spec ${formatMs(specMs)}`);
+                addMs(runMs, specMs);
             }
         }
         catch (err) {
@@ -77,6 +95,9 @@ else {
             console.log(`✘ ${file}`);
             console.log(`  error: ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+    if (values.timing && Object.keys(runMs).length) {
+        console.log(`ms run ${formatMs(runMs)}`);
     }
     process.exit(allPassed ? 0 : 1);
 }

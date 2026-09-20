@@ -167,7 +167,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
       if (!session) throw new Error('call open first');
       target = interpolate(target, { env: {}, hooks: data }, 'mcp');
       const before = totalTokens;
-      const [r] = await resolveLocators(session.ctx.page, kind, [target]);
+      const [r] = await resolveLocators(session.ctx, kind, [target]);
       if (r.usedJev) track(r.tokens);
       return ok({ found: r.locator !== null, detail: r.detail, confidence: r.confidence, jevTokens: totalTokens - before });
     }
@@ -190,7 +190,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
       let snap;
       if (within) {
         const before = totalTokens;
-        const [r] = await resolveLocators(session.ctx.page, 'region', [interpolate(within, { env: {}, hooks: data }, 'mcp')]);
+        const [r] = await resolveLocators(session.ctx, 'region', [interpolate(within, { env: {}, hooks: data }, 'mcp')]);
         if (r.usedJev) track(r.tokens);
         if (!r.locator) return ok({ found: false, detail: r.detail, jevTokens: totalTokens - before });
         region = r.detail;
