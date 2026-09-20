@@ -56,6 +56,7 @@ kept as written when \`save\` writes the spec, so the saved spec stays dataset-d
 not available in this session — add it to the YAML yourself after saving.`;
 export async function serveMcp(opts) {
     let session = null;
+    const sessionOpts = { ...opts }; // `open {headed}` may flip headed per session
     const spec = { name: 'plainwright session', url: '', dir: process.cwd(), dialogs: 'accept', steps: [] };
     const transcript = [];
     let totalTokens = 0;
@@ -88,11 +89,22 @@ export async function serveMcp(opts) {
         description: "Open the persistent browser session (first call) or navigate it to a new URL. `hooks`: optional path " +
             "(relative to the server's working directory) of a setup/teardown module, as in a spec's `hooks` key; " +
             'setup runs now, before the navigation, and its result is available to steps as ${hooks.*}. Teardown runs ' +
-            'when the session ends or when `open` is called again with `hooks`.',
-        inputSchema: { url: z.string(), hooks: z.string().optional() },
-    }, async ({ url, hooks: hooksPath }) => {
+            'when the session ends or when `open` is called again with `hooks`. `headed`: true shows the browser window ' +
+            '(when the user wants to watch), false hides it; default is how the server was started. Changing it on a ' +
+            'later call relaunches the browser, so cookies and logins of the current session are lost. Ignored when ' +
+            'attached to a running Chrome (--cdp).',
+        inputSchema: { url: z.string(), hooks: z.string().optional(), headed: z.boolean().optional() },
+    }, async ({ url, hooks: hooksPath, headed }) => {
+        const notes = [];
+        if (session && headed !== undefined && headed !== sessionOpts.headed && !sessionOpts.cdp) {
+            await session.close();
+            session = null;
+            notes.push(`browser relaunched ${headed ? 'headed' : 'headless'}; the previous session's cookies are gone`);
+        }
         if (!session) {
-            session = await openSession(spec, opts, track);
+            if (headed !== undefined)
+                sessionOpts.headed = headed;
+            session = await openSession(spec, sessionOpts, track);
             spec.url = url;
         }
         if (hooksPath) {
@@ -116,7 +128,7 @@ export async function serveMcp(opts) {
             throw new Error(result.detail ?? 'goto failed');
         transcript.push({ goto: url }); // so `save` replays the navigation too
         const title = await session.ctx.page.title();
-        const response = { url: session.ctx.page.url(), title, notes: session.drainNotes() };
+        const response = { url: session.ctx.page.url(), title, notes: [...notes, ...session.drainNotes()] };
         if (hooksFile)
             response.placeholders = placeholderPaths(data, 'hooks');
         return ok(response);

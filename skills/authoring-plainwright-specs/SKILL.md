@@ -22,7 +22,8 @@ with one clear yes. The lever is wording, not thresholds.
 
 ## Workflow
 
-1. `open` the start URL. Do not `snapshot` first: `step` and `find` do the looking. Pass `hooks: ./path.mjs`
+1. `open` the start URL. Do not `snapshot` first: `step` and `find` do the looking. Pass `headed: true` when the
+   user wants to watch the browser (default is headless). Pass `hooks: ./path.mjs`
    when the flow needs leased or generated data; the response lists the `${hooks.*}` placeholders to use in
    steps, and `save` keeps them.
 2. Drive the flow with `step`, one action or one check per call. Read `status`, `detail`, `notes` and `url`

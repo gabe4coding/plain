@@ -13,7 +13,7 @@ node bin/plainwright.mjs [--headless] [--timeout <ms>] mcp
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `open` | `url`, optional `hooks` | Starts the browser (first call) or navigates. `hooks` is a setup/teardown module path, relative to the server's working directory. Setup runs before the navigation and its result is available as `${hooks.*}`, listed by path (never by value) in the response. Teardown runs when the session ends, or right away when `open` is called again with a new `hooks`. |
+| `open` | `url`, optional `hooks`, optional `headed` | Starts the browser (first call) or navigates. `headed: true` shows the window, `false` hides it; the default is the server's `--headless` flag, and changing it later relaunches the browser (session cookies are lost; ignored with `--cdp`). `hooks` is a setup/teardown module path, relative to the server's working directory. Setup runs before the navigation and its result is available as `${hooks.*}`, listed by path (never by value) in the response. Teardown runs when the session ends, or right away when `open` is called again with a new `hooks`. |
 | `step` | `step` | Runs one YAML-shaped step: `{click: "the Login button"}`, `{fill: {target, value}}`, `{expect: [...]}`, any kind from the [spec reference](spec-reference.md). Returns `status`, `detail`, `notes`, `url` and `jevTokens`. |
 | `find` | `kind`, `target` | Dry run of a pick: what Jev would choose, without acting. `kind` is `click`, `hover`, `fill`, `select`, `check`, `upload` or `region`. |
 | `snapshot` | optional `maxChars` | The accessibility tree. An escape hatch for when rephrasing does not help. |
