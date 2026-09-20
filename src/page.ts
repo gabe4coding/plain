@@ -1,12 +1,16 @@
+import { StepKind } from './step-kind.js';
+import { z } from 'zod';
 import type { Page, Frame, Locator } from 'playwright';
 
-export interface Candidate {
-  id: number;
-  desc: string;
-  frameIndex: number;
-}
+export const CandidateSchema = z.object({
+  id: z.number(),
+  desc: z.string(),
+  frameIndex: z.number(),
+});
+export type Candidate = z.infer<typeof CandidateSchema>;
 
-export type CandidateKind = 'click' | 'hover' | 'fill' | 'select' | 'check' | 'upload' | 'region';
+export const CandidateKindSchema = z.enum([StepKind.click, StepKind.hover, StepKind.fill, StepKind.select, StepKind.check, StepKind.upload, 'region']);
+export type CandidateKind = z.infer<typeof CandidateKindSchema>;
 
 const CLICK_SELECTOR =
   'a, button, input, select, textarea, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=radio], [role=option], [role=listbox] li, [role=menuitemradio], [onclick]';
@@ -19,12 +23,12 @@ const REGION_SELECTOR =
   'main, section, article, dialog, nav, header, footer, aside, form, table, [role=region], [role=dialog], [role=main], [role=tabpanel], [role=list]';
 
 const SELECTORS: Record<CandidateKind, string> = {
-  click: CLICK_SELECTOR,
-  hover: `${CLICK_SELECTOR}, img, svg, figure`, // hover targets are often plain images with no clickable signal
-  fill: FILL_SELECTOR,
-  select: SELECT_SELECTOR,
-  check: CHECK_SELECTOR,
-  upload: UPLOAD_SELECTOR,
+  [StepKind.click]: CLICK_SELECTOR,
+  [StepKind.hover]: `${CLICK_SELECTOR}, img, svg, figure`, // hover targets are often plain images with no clickable signal
+  [StepKind.fill]: FILL_SELECTOR,
+  [StepKind.select]: SELECT_SELECTOR,
+  [StepKind.check]: CHECK_SELECTOR,
+  [StepKind.upload]: UPLOAD_SELECTOR,
   region: REGION_SELECTOR,
 };
 
@@ -166,8 +170,8 @@ function frameLabel(frame: Frame): string {
 
 export async function candidates(page: Page, kind: CandidateKind, max: number): Promise<Candidate[]> {
   const selector = SELECTORS[kind];
-  const includeExtras = kind === 'click' || kind === 'hover';
-  const skipVisibility = kind === 'upload';
+  const includeExtras = kind === StepKind.click || kind === StepKind.hover;
+  const skipVisibility = kind === StepKind.upload;
   const out: Candidate[] = [];
   const frames = page.frames();
 
@@ -196,12 +200,13 @@ export function elementById(page: Page, id: number, frameIndex = 0): Locator {
   return page.frames()[frameIndex].locator(`[data-jev-id="${id}"]`);
 }
 
-export interface Snapshot {
-  url: string;
-  title: string;
-  aria: string;
-  truncated: boolean;
-}
+export const SnapshotSchema = z.object({
+  url: z.string(),
+  title: z.string(),
+  aria: z.string(),
+  truncated: z.boolean(),
+});
+export type Snapshot = z.infer<typeof SnapshotSchema>;
 
 const ARIA_MAX_CHARS = 60_000; // ponytail: hard truncate, no smart summarization — ≈15k tokens, ≈$0.0006/call
 

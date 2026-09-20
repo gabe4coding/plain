@@ -1,10 +1,11 @@
+import { z } from 'zod';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { interpolate } from './spec.js';
-import { runStep, label } from './steps.js';
+import { runStep, label, StatusSchema, StepResultSchema } from './steps.js';
 // Imports and validates a hooks module — shared by the batch runner and the MCP server's `open
 // {hooks}`, so both fail the same way on a broken module.
 export async function loadHooks(file) {
@@ -27,7 +28,27 @@ export async function runSetup(hooks, args) {
         throw new Error('setup must return an object');
     return returned;
 }
+export const TestResultSchema = z.object({
+    name: z.string(),
+    status: StatusSchema,
+    steps: z.array(StepResultSchema),
+    jevCalls: z.number(),
+    totalTokens: z.number(),
+});
 const MAX_EVENTS = 30; // ponytail: cap what's sent to Jev as `events` — a long spec shouldn't grow this unbounded
+// Launches the browser/context/page for one spec and wires up the listeners every step relies on
+// (dialogs, popups, downloads, console/page errors). Shared by the batch runner below and by the
+// MCP server, which keeps one Session alive across many tool calls instead of one spec.
+export const RunOptionsSchema = z.object({
+    headed: z.boolean(),
+    timeout: z.number(),
+    /** Persistent user-data dir: cookies and logins survive between runs. Ignored when `cdp` is set. */
+    profile: z.string().optional(),
+    /** Attach to a running Chrome over CDP instead of launching one. */
+    cdp: z.string().optional(),
+    /** Playwright browser channel to launch instead of the bundled Chromium. */
+    channel: z.string().optional(),
+});
 // Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
 // launch a throwaway browser (the default). Returns the page plus how to release it: attaching must
 // disconnect (never close the user's Chrome) and only close the tab it opened.

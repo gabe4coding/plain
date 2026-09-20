@@ -1,7 +1,9 @@
+import { z } from 'zod';
 import { experimental_evaluate as evaluate, APICallError } from 'ai';
 import { TypeSafeClient, UnprocessableEntityError, noul, choice } from '@typesafe-ai/sdk';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+export const ProviderSchema = z.enum(['typesafe', 'gateway']);
 // One documented place for a key, read by the CLI and by both plugin hosts (src/cli.ts loads it after the cwd .env).
 // It exists because Codex passes plugin MCP servers no shell environment at all.
 export const USER_ENV_FILE = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'plainwright', '.env');
@@ -91,6 +93,20 @@ export function isTooLong(err) {
     }
     return err instanceof Error && /max_tokens_exceeded/.test(err.message); // gateway wording, seen live
 }
+export const QuestionSchema = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('choice'), instructions: z.string(), criteria: z.record(z.string(), z.string()) }),
+    z.object({ kind: z.literal('boolean'), instructions: z.string() }),
+]);
+// Raw shape an answer comes back in from either backend, before ask() normalizes it. `confidence`
+// only ever comes from a Choice answer (TypeSafe's `ChoiceResponse`); carried through, not decided on.
+export const AskAnswerSchema = z.object({
+    choice: z.string().optional(),
+    probabilities: z.record(z.string(), z.number()).optional(),
+    probability: z.number().optional(),
+    confidence: z.number().optional(),
+});
+const RawAnswerSchema = AskAnswerSchema.extend({ noul: z.number().optional() });
+const RawAnswersSchema = z.record(z.string(), RawAnswerSchema);
 async function callGateway(state, questions) {
     const keys = questions.map((_, i) => `q${i}`);
     const { answers, usage } = await evaluate({
@@ -105,7 +121,7 @@ async function callGateway(state, questions) {
                 : { type: 'boolean', instructions: q.instructions },
         ])),
     });
-    const raw = answers;
+    const raw = RawAnswersSchema.parse(answers);
     return { answers: keys.map((k) => raw[k]), tokens: usage.totalTokens ?? 0 };
 }
 async function callTypesafe(state, questions) {
@@ -115,7 +131,7 @@ async function callTypesafe(state, questions) {
         state: state,
         questions: Object.fromEntries(questions.map((q, i) => [keys[i], q.kind === 'choice' ? choice(q.instructions, q.criteria) : noul(q.instructions)])),
     });
-    const raw = answers;
+    const raw = RawAnswersSchema.parse(answers);
     return { answers: keys.map((k) => raw[k]), tokens: usage.input_tokens + usage.output_tokens };
 }
 // The one call path pickElements and judge both go through: dispatches on the resolved provider
@@ -133,6 +149,13 @@ async function ask(state, questions) {
 // elements are listed first, cursor:pointer extras last, so a dense page loses extras, not real controls.
 // ponytail: no pagination — if the real controls alone exceed this, target the step with css= instead.
 export const MAX_PICK_CANDIDATES = 254;
+export const PickResultSchema = z.object({
+    id: z.number().nullable(),
+    probability: z.number(), // p of the chosen option
+    confidence: z.number().optional(), // TypeSafe Choice confidence; absent on the gateway path
+    probabilities: z.record(z.string(), z.number()), // option key → p
+    tokens: z.number(), // whole-request tokens on the FIRST result, 0 on the others
+});
 // One Choice question per instruction, all sharing the same criteria and one request. Descriptions
 // are deliberately sent twice (state.elements and criteria). Measured 2026-09-19 with them only in
 // criteria: pick tokens -40% on a 192-candidate page, but pick p -0.05 on average and up to -0.33;
@@ -170,6 +193,7 @@ export async function judge(state, claims) {
     const { tokens, answers } = await ask(state, claims.map((c) => ({ kind: 'boolean', instructions: c })));
     return { probabilities: answers.map((a) => a.probability ?? 0), tokens };
 }
+export const DecisionSchema = z.enum(['pass', 'fail', 'inconclusive']);
 // ponytail: fixed thresholds, make them CLI flags if a real suite needs tuning
 const EXPECT_PASS = 0.9;
 const EXPECT_FAIL = 0.1;

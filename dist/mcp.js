@@ -1,3 +1,4 @@
+import { StepKind } from './step-kind.js';
 import { writeFileSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { z } from 'zod';
@@ -7,7 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { parseStep, interpolate } from './spec.js';
 import { openSession, loadHooks, runSetup } from './runner.js';
 import { runStep, label, resolveLocators } from './steps.js';
-import { snapshot } from './page.js';
+import { snapshot, CandidateKindSchema } from './page.js';
 // Leaf paths of `data` as `${hooks.a.b}` placeholders for the `open` response — never the values
 // themselves, since leased data can be credentials. Arrays and non-object leaves are leaves.
 function placeholderPaths(obj, prefix) {
@@ -110,7 +111,7 @@ export async function serveMcp(opts) {
                 throw err;
             }
         }
-        const result = await runStep(session.ctx, { kind: 'goto', url });
+        const result = await runStep(session.ctx, { kind: StepKind.goto, url });
         if (result.status === 'error')
             throw new Error(result.detail ?? 'goto failed');
         transcript.push({ goto: url }); // so `save` replays the navigation too
@@ -140,7 +141,7 @@ export async function serveMcp(opts) {
     });
     server.registerTool('find', {
         description: "Dry run of a step target: tells you what Jev would pick, without acting.",
-        inputSchema: { kind: z.enum(['click', 'hover', 'fill', 'select', 'check', 'upload', 'region']), target: z.string() },
+        inputSchema: { kind: CandidateKindSchema, target: z.string() },
     }, async ({ kind, target }) => {
         if (!session)
             throw new Error('call open first');

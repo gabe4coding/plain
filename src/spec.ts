@@ -1,37 +1,62 @@
+import { StepKind } from './step-kind.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { parse } from 'yaml';
+import { z } from 'zod';
 
-export type Step =
-  | { kind: 'goto'; url: string; optional?: boolean }
-  | { kind: 'fill'; target: string; value: string; optional?: boolean }
-  | { kind: 'click'; target: string; optional?: boolean }
-  | { kind: 'hover'; target: string; optional?: boolean }
-  | { kind: 'dblclick'; target: string; optional?: boolean }
-  | { kind: 'rightclick'; target: string; optional?: boolean }
-  | { kind: 'select'; target: string; value: string; optional?: boolean }
-  | { kind: 'check'; target: string; optional?: boolean }
-  | { kind: 'uncheck'; target: string; optional?: boolean }
-  | { kind: 'upload'; target: string; files: string[]; optional?: boolean }
-  | { kind: 'scroll'; target: string; optional?: boolean }
-  | { kind: 'wait'; condition: string; optional?: boolean }
-  | { kind: 'press'; key: string; optional?: boolean }
-  | { kind: 'drag'; source: string; target: string; optional?: boolean }
-  | { kind: 'mouse'; x: number; y: number; optional?: boolean }
-  | { kind: 'expect'; expectations: string[]; within?: string; optional?: boolean };
+const nonEmptyString = z.string().min(1);
+const optional = z.boolean().optional();
+const target = nonEmptyString;
 
-export interface Spec {
-  name: string;
-  url: string;
-  dir: string; // directory the spec file lives in — `upload.files` paths resolve relative to this
-  dialogs: 'accept' | 'dismiss';
-  auth?: { user: string; pass: string };
-  geolocation?: { lat: number; lon: number };
-  // Optional so an MCP-built Spec (which has no env block) still satisfies this type; loadSpec
-  // always fills it in (default `{}`) for a spec loaded from a file.
-  env?: Record<string, unknown>;
-  hooks?: string; // absolute path to the hooks module, resolved relative to the spec file
-  steps: Step[];
+// Schemas are the source of truth for normalized data and its TypeScript types.
+export const StepSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal(StepKind.goto), url: nonEmptyString, optional }),
+  z.object({ kind: z.literal(StepKind.fill), target, value: z.string(), optional }),
+  z.object({ kind: z.literal(StepKind.click), target, optional }),
+  z.object({ kind: z.literal(StepKind.hover), target, optional }),
+  z.object({ kind: z.literal(StepKind.dblclick), target, optional }),
+  z.object({ kind: z.literal(StepKind.rightclick), target, optional }),
+  z.object({ kind: z.literal(StepKind.select), target, value: nonEmptyString, optional }),
+  z.object({ kind: z.literal(StepKind.check), target, optional }),
+  z.object({ kind: z.literal(StepKind.uncheck), target, optional }),
+  z.object({ kind: z.literal(StepKind.upload), target, files: z.array(nonEmptyString).min(1), optional }),
+  z.object({ kind: z.literal(StepKind.scroll), target, optional }),
+  z.object({ kind: z.literal(StepKind.wait), condition: nonEmptyString, optional }),
+  z.object({ kind: z.literal(StepKind.press), key: nonEmptyString, optional }),
+  z.object({ kind: z.literal(StepKind.drag), source: nonEmptyString, target, optional }),
+  // Negative y is the escape hatch for exit-intent triggers above the viewport.
+  z.object({ kind: z.literal(StepKind.mouse), x: z.number(), y: z.number(), optional }),
+  z.object({ kind: z.literal(StepKind.expect), expectations: z.array(nonEmptyString).min(1), within: nonEmptyString.optional(), optional }),
+]);
+export type Step = z.infer<typeof StepSchema>;
+
+export const SpecSchema = z.object({
+  name: nonEmptyString,
+  url: nonEmptyString,
+  dir: z.string(), // directory used to resolve upload paths
+  dialogs: z.enum(['accept', 'dismiss']),
+  auth: z.object({ user: nonEmptyString, pass: nonEmptyString }).optional(),
+  geolocation: z.object({ lat: z.number(), lon: z.number() }).optional(),
+  // MCP-built specs have no env block; loadSpec supplies {} for file-based specs.
+  env: z.record(z.string(), z.unknown()).optional(),
+  hooks: nonEmptyString.optional(), // absolute path after loading
+  steps: z.array(StepSchema), // an MCP session starts with no steps
+});
+export type Spec = z.infer<typeof SpecSchema>;
+
+const FileSpecSchema = SpecSchema.omit({ dir: true, steps: true }).extend({
+  dialogs: SpecSchema.shape.dialogs.nullish().transform((value) => value ?? 'accept'),
+  steps: z.array(z.unknown()).min(1),
+});
+
+function parseData<T extends z.ZodType>(schema: T, raw: unknown, where: string): z.output<T> {
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const field = issue.path.length ? ` "${issue.path.join('.')}"` : '';
+    fail(`${where}:${field} ${issue.message}`);
+  }
+  return result.data;
 }
 
 function fail(msg: string): never {
@@ -62,164 +87,57 @@ function resolveEnvBlock(path: string, field: string, raw: Record<string, unknow
   return out;
 }
 
-// `expect`/`expect.that` takes one claim (a string) or several (a list) — always normalized to a
-// non-empty string array so steps.ts judges every claim in one Jev request.
-function parseExpectations(path: string, i: number, val: unknown, field: string): string[] {
-  if (typeof val === 'string') {
-    if (!val) fail(`${path}: step ${i} "${field}" must be a non-empty string`);
-    return [val];
-  }
-  if (Array.isArray(val)) {
-    if (val.length === 0 || !val.every((v) => typeof v === 'string' && v))
-      fail(`${path}: step ${i} "${field}" must be a non-empty list of non-empty strings`);
-    return val as string[];
-  }
-  fail(`${path}: step ${i} "${field}" must be a non-empty string or a non-empty list of strings`);
-}
+const MappingSchema = z.record(z.string(), z.unknown());
+const STEP_KINDS = StepSchema.options.map((schema) => schema.shape.kind.value);
 
-const STEP_KINDS =
-  'goto, fill, click, hover, dblclick, rightclick, select, check, uncheck, upload, scroll, wait, press, drag, mouse, expect';
-
-// `path` is only used for error messages — it lets a step from any source (a spec file, or a raw
-// object handed in over MCP) report the same "invalid spec" errors loadSpec always has.
+// YAML/MCP use one action key; normalize that syntax before schema validation.
 export function parseStep(path: string, i: number, raw: unknown): Step {
-  if (raw === null || typeof raw !== 'object') fail(`${path}: step ${i} must be a mapping`);
-  const obj = raw as Record<string, unknown>;
-  // ponytail: `optional` is a sibling flag, not a step kind — strip it before the
-  // "exactly one key" check instead of teaching every case about a second key.
-  const optional = obj.optional === true;
-  const keys = Object.keys(obj).filter((k) => k !== 'optional');
-  if (keys.length !== 1) fail(`${path}: step ${i} must have exactly one key (plus optional "optional"), got [${keys.join(', ')}]`);
-  const [key] = keys;
-  const val = obj[key];
-  switch (key) {
-    case 'goto':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "goto" must be a non-empty string`);
-      return { kind: 'goto', url: val, optional };
-    case 'fill': {
-      if (val === null || typeof val !== 'object') fail(`${path}: step ${i} "fill" must be a mapping`);
-      const f = val as Record<string, unknown>;
-      if (typeof f.target !== 'string' || !f.target) fail(`${path}: step ${i} "fill.target" must be a non-empty string`);
-      if (typeof f.value !== 'string') fail(`${path}: step ${i} "fill.value" must be a string`);
-      return { kind: 'fill', target: f.target, value: f.value, optional };
+  const where = `${path}: step ${i}`;
+  const obj = parseData(MappingSchema, raw, where);
+  const keys = Object.keys(obj).filter((key) => key !== 'optional');
+  if (keys.length !== 1) fail(`${where} must have exactly one key (plus optional "optional"), got [${keys.join(', ')}]`);
+  const [kind] = keys;
+  if (!STEP_KINDS.some((key) => key === kind))
+    fail(`${where} has unknown key "${kind}" (expected one of ${STEP_KINDS.join(', ')})`);
+
+  const val = obj[kind];
+  let fields: Record<string, unknown>;
+  switch (kind) {
+    case StepKind.goto: fields = { url: val }; break;
+    case StepKind.click: case StepKind.hover: case StepKind.dblclick: case StepKind.rightclick:
+    case StepKind.check: case StepKind.uncheck: case StepKind.scroll:
+      fields = { target: val }; break;
+    case StepKind.wait: fields = { condition: val }; break;
+    case StepKind.press: fields = { key: val }; break;
+    case StepKind.expect: {
+      const scoped = typeof val !== 'string' && !Array.isArray(val);
+      const expectation = scoped ? parseData(MappingSchema, val, `${where} "expect"`) : { that: val };
+      fields = {
+        expectations: typeof expectation.that === 'string' ? [expectation.that] : expectation.that,
+        ...(expectation.within === undefined ? {} : { within: expectation.within }),
+      };
+      break;
     }
-    case 'click':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "click" must be a non-empty string`);
-      return { kind: 'click', target: val, optional };
-    case 'hover':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "hover" must be a non-empty string`);
-      return { kind: 'hover', target: val, optional };
-    case 'dblclick':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "dblclick" must be a non-empty string`);
-      return { kind: 'dblclick', target: val, optional };
-    case 'rightclick':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "rightclick" must be a non-empty string`);
-      return { kind: 'rightclick', target: val, optional };
-    case 'select': {
-      if (val === null || typeof val !== 'object') fail(`${path}: step ${i} "select" must be a mapping`);
-      const s2 = val as Record<string, unknown>;
-      if (typeof s2.target !== 'string' || !s2.target) fail(`${path}: step ${i} "select.target" must be a non-empty string`);
-      if (typeof s2.value !== 'string' || !s2.value) fail(`${path}: step ${i} "select.value" must be a non-empty string`);
-      return { kind: 'select', target: s2.target, value: s2.value, optional };
-    }
-    case 'check':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "check" must be a non-empty string`);
-      return { kind: 'check', target: val, optional };
-    case 'uncheck':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "uncheck" must be a non-empty string`);
-      return { kind: 'uncheck', target: val, optional };
-    case 'upload': {
-      if (val === null || typeof val !== 'object') fail(`${path}: step ${i} "upload" must be a mapping`);
-      const u = val as Record<string, unknown>;
-      if (typeof u.target !== 'string' || !u.target) fail(`${path}: step ${i} "upload.target" must be a non-empty string`);
-      if (!Array.isArray(u.files) || u.files.length === 0 || !u.files.every((f) => typeof f === 'string' && f))
-        fail(`${path}: step ${i} "upload.files" must be a non-empty list of strings`);
-      return { kind: 'upload', target: u.target, files: u.files as string[], optional };
-    }
-    case 'scroll':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "scroll" must be a non-empty string`);
-      return { kind: 'scroll', target: val, optional };
-    case 'wait':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "wait" must be a non-empty string`);
-      return { kind: 'wait', condition: val, optional };
-    case 'press':
-      if (typeof val !== 'string' || !val) fail(`${path}: step ${i} "press" must be a non-empty string`);
-      return { kind: 'press', key: val, optional };
-    case 'drag': {
-      if (val === null || typeof val !== 'object') fail(`${path}: step ${i} "drag" must be a mapping`);
-      const d = val as Record<string, unknown>;
-      if (typeof d.source !== 'string' || !d.source) fail(`${path}: step ${i} "drag.source" must be a non-empty string`);
-      if (typeof d.target !== 'string' || !d.target) fail(`${path}: step ${i} "drag.target" must be a non-empty string`);
-      return { kind: 'drag', source: d.source, target: d.target, optional };
-    }
-    case 'mouse': {
-      if (val === null || typeof val !== 'object') fail(`${path}: step ${i} "mouse" must be a mapping`);
-      const m = val as Record<string, unknown>;
-      // y may be negative — that's the escape hatch for exit-intent triggers past the viewport's top edge.
-      if (typeof m.x !== 'number') fail(`${path}: step ${i} "mouse.x" must be a number`);
-      if (typeof m.y !== 'number') fail(`${path}: step ${i} "mouse.y" must be a number`);
-      return { kind: 'mouse', x: m.x, y: m.y, optional };
-    }
-    case 'expect': {
-      if (typeof val === 'string' || Array.isArray(val)) {
-        return { kind: 'expect', expectations: parseExpectations(path, i, val, 'expect'), optional };
-      }
-      if (val !== null && typeof val === 'object') {
-        const e = val as Record<string, unknown>;
-        const expectations = parseExpectations(path, i, e.that, 'expect.that');
-        if (e.within === undefined) return { kind: 'expect', expectations, optional };
-        if (typeof e.within !== 'string' || !e.within) fail(`${path}: step ${i} "expect.within" must be a non-empty string`);
-        return { kind: 'expect', expectations, within: e.within, optional };
-      }
-      fail(`${path}: step ${i} "expect" must be a non-empty string, a list of strings, or a { that, within } mapping`);
-    }
-    default:
-      fail(`${path}: step ${i} has unknown key "${key}" (expected one of ${STEP_KINDS})`);
+    default: fields = parseData(MappingSchema, val, `${where} "${kind}"`);
   }
+  // Preserve the existing flag convention: only literal true enables optional execution.
+  return parseData(StepSchema, { ...fields, kind, optional: obj.optional === true }, where);
 }
 
 export function loadSpec(path: string): Spec {
-  const raw = parse(readFileSync(path, 'utf8'));
-  if (raw === null || typeof raw !== 'object') fail(`${path}: top level must be a mapping`);
-  if (typeof raw.name !== 'string' || !raw.name) fail(`${path}: missing "name"`);
-  if (typeof raw.url !== 'string' || !raw.url) fail(`${path}: missing "url"`);
-  if (!Array.isArray(raw.steps) || raw.steps.length === 0) fail(`${path}: "steps" must be a non-empty list`);
-  const dialogs = raw.dialogs ?? 'accept';
-  if (dialogs !== 'accept' && dialogs !== 'dismiss') fail(`${path}: "dialogs" must be "accept" or "dismiss"`);
-
-  let auth: Spec['auth'];
-  if (raw.auth !== undefined) {
-    if (raw.auth === null || typeof raw.auth !== 'object') fail(`${path}: "auth" must be a mapping`);
-    const a = raw.auth as Record<string, unknown>;
-    if (typeof a.user !== 'string' || !a.user) fail(`${path}: "auth.user" must be a non-empty string`);
-    if (typeof a.pass !== 'string' || !a.pass) fail(`${path}: "auth.pass" must be a non-empty string`);
-    auth = { user: resolveEnvRef(path, 'auth.user', a.user), pass: resolveEnvRef(path, 'auth.pass', a.pass) };
-  }
-
-  let geolocation: Spec['geolocation'];
-  if (raw.geolocation !== undefined) {
-    if (raw.geolocation === null || typeof raw.geolocation !== 'object') fail(`${path}: "geolocation" must be a mapping`);
-    const g = raw.geolocation as Record<string, unknown>;
-    if (typeof g.lat !== 'number') fail(`${path}: "geolocation.lat" must be a number`);
-    if (typeof g.lon !== 'number') fail(`${path}: "geolocation.lon" must be a number`);
-    geolocation = { lat: g.lat, lon: g.lon };
-  }
-
-  let env: Record<string, unknown> = {};
-  if (raw.env !== undefined) {
-    if (raw.env === null || typeof raw.env !== 'object') fail(`${path}: "env" must be a mapping`);
-    env = resolveEnvBlock(path, 'env', raw.env as Record<string, unknown>);
-  }
-
-  let hooks: Spec['hooks'];
-  if (raw.hooks !== undefined) {
-    if (typeof raw.hooks !== 'string' || !raw.hooks) fail(`${path}: "hooks" must be a non-empty string`);
-    hooks = resolve(dirname(path), raw.hooks);
-  }
-
-  const steps: Step[] = raw.steps.map((s: unknown, i: number): Step => parseStep(path, i, s));
-
-  return { name: raw.name, url: raw.url, dir: dirname(path), dialogs, auth, geolocation, env, hooks, steps };
+  const raw = parseData(FileSpecSchema, parse(readFileSync(path, 'utf8')), path);
+  const auth = raw.auth && {
+    user: resolveEnvRef(path, 'auth.user', raw.auth.user),
+    pass: resolveEnvRef(path, 'auth.pass', raw.auth.pass),
+  };
+  return {
+    ...raw,
+    dir: dirname(path),
+    auth,
+    env: resolveEnvBlock(path, 'env', raw.env ?? {}),
+    hooks: raw.hooks === undefined ? undefined : resolve(dirname(path), raw.hooks),
+    steps: raw.steps.map((step, i) => parseStep(path, i, step)),
+  };
 }
 
 // Deep-walks `value`, replacing every `${a.b.c}` in any string with the leaf it names under

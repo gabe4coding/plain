@@ -1,10 +1,11 @@
+import { z } from 'zod';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium, type BrowserContextOptions, type Page } from 'playwright';
 import { interpolate, type Spec } from './spec.js';
-import { runStep, label, type StepContext, type StepResult, type Status } from './steps.js';
+import { runStep, label, StatusSchema, StepResultSchema, type StepContext, type StepResult, type Status } from './steps.js';
 
 // What a hooks module (`spec.hooks`) may export. Both are optional; anything else is rejected once
 // imported, before the browser opens. Exported so the MCP server can lease the same module shape.
@@ -32,13 +33,14 @@ export async function runSetup(hooks: HooksModule, args: { spec: Spec; page: Pag
   return returned as Record<string, unknown>;
 }
 
-export interface TestResult {
-  name: string;
-  status: Status;
-  steps: StepResult[];
-  jevCalls: number;
-  totalTokens: number;
-}
+export const TestResultSchema = z.object({
+  name: z.string(),
+  status: StatusSchema,
+  steps: z.array(StepResultSchema),
+  jevCalls: z.number(),
+  totalTokens: z.number(),
+});
+export type TestResult = z.infer<typeof TestResultSchema>;
 
 const MAX_EVENTS = 30; // ponytail: cap what's sent to Jev as `events` — a long spec shouldn't grow this unbounded
 
@@ -51,16 +53,17 @@ export interface Session {
 // Launches the browser/context/page for one spec and wires up the listeners every step relies on
 // (dialogs, popups, downloads, console/page errors). Shared by the batch runner below and by the
 // MCP server, which keeps one Session alive across many tool calls instead of one spec.
-export interface RunOptions {
-  headed: boolean;
-  timeout: number;
+export const RunOptionsSchema = z.object({
+  headed: z.boolean(),
+  timeout: z.number(),
   /** Persistent user-data dir: cookies and logins survive between runs. Ignored when `cdp` is set. */
-  profile?: string;
-  /** Attach to a running Chrome over CDP (e.g. http://127.0.0.1:9222) instead of launching one. */
-  cdp?: string;
-  /** Playwright browser channel to launch instead of the bundled Chromium: `chrome`, `msedge`, `chrome-beta`... */
-  channel?: string;
-}
+  profile: z.string().optional(),
+  /** Attach to a running Chrome over CDP instead of launching one. */
+  cdp: z.string().optional(),
+  /** Playwright browser channel to launch instead of the bundled Chromium. */
+  channel: z.string().optional(),
+});
+export type RunOptions = z.infer<typeof RunOptionsSchema>;
 
 // Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
 // launch a throwaway browser (the default). Returns the page plus how to release it: attaching must

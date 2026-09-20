@@ -1,10 +1,12 @@
+import { z } from 'zod';
 import { experimental_evaluate as evaluate, APICallError } from 'ai';
 import { TypeSafeClient, UnprocessableEntityError, noul, choice } from '@typesafe-ai/sdk';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Candidate } from './page.js';
 
-export type Provider = 'typesafe' | 'gateway';
+export const ProviderSchema = z.enum(['typesafe', 'gateway']);
+export type Provider = z.infer<typeof ProviderSchema>;
 
 // One documented place for a key, read by the CLI and by both plugin hosts (src/cli.ts loads it after the cwd .env).
 // It exists because Codex passes plugin MCP servers no shell environment at all.
@@ -100,33 +102,25 @@ export function isTooLong(err: unknown): boolean {
   return err instanceof Error && /max_tokens_exceeded/.test(err.message); // gateway wording, seen live
 }
 
-interface ChoiceQuestion {
-  kind: 'choice';
-  instructions: string;
-  criteria: Record<string, string>;
-}
-interface BooleanQuestion {
-  kind: 'boolean';
-  instructions: string;
-}
-export type Question = ChoiceQuestion | BooleanQuestion;
+export const QuestionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('choice'), instructions: z.string(), criteria: z.record(z.string(), z.string()) }),
+  z.object({ kind: z.literal('boolean'), instructions: z.string() }),
+]);
+export type Question = z.infer<typeof QuestionSchema>;
 
 // Raw shape an answer comes back in from either backend, before ask() normalizes it. `confidence`
 // only ever comes from a Choice answer (TypeSafe's `ChoiceResponse`); carried through, not decided on.
-interface RawAnswer {
-  choice?: string;
-  probabilities?: Record<string, number>;
-  probability?: number;
-  noul?: number;
-  confidence?: number;
-}
+export const AskAnswerSchema = z.object({
+  choice: z.string().optional(),
+  probabilities: z.record(z.string(), z.number()).optional(),
+  probability: z.number().optional(),
+  confidence: z.number().optional(),
+});
+export type AskAnswer = z.infer<typeof AskAnswerSchema>;
 
-export interface AskAnswer {
-  choice?: string;
-  probabilities?: Record<string, number>;
-  probability?: number;
-  confidence?: number;
-}
+const RawAnswerSchema = AskAnswerSchema.extend({ noul: z.number().optional() });
+const RawAnswersSchema = z.record(z.string(), RawAnswerSchema);
+type RawAnswer = z.infer<typeof RawAnswerSchema>;
 
 async function callGateway(state: unknown, questions: Question[]): Promise<{ answers: RawAnswer[]; tokens: number }> {
   const keys = questions.map((_, i) => `q${i}`);
@@ -144,7 +138,7 @@ async function callGateway(state: unknown, questions: Question[]): Promise<{ ans
       ])
     ),
   });
-  const raw = answers as Record<string, RawAnswer>;
+  const raw = RawAnswersSchema.parse(answers);
   return { answers: keys.map((k) => raw[k]), tokens: usage.totalTokens ?? 0 };
 }
 
@@ -157,7 +151,7 @@ async function callTypesafe(state: unknown, questions: Question[]): Promise<{ an
       questions.map((q, i) => [keys[i], q.kind === 'choice' ? choice(q.instructions, q.criteria) : noul(q.instructions)])
     ),
   });
-  const raw = answers as Record<string, RawAnswer>;
+  const raw = RawAnswersSchema.parse(answers);
   return { answers: keys.map((k) => raw[k]), tokens: usage.input_tokens + usage.output_tokens };
 }
 
@@ -181,13 +175,14 @@ async function ask(state: unknown, questions: Question[]): Promise<{ tokens: num
 // ponytail: no pagination — if the real controls alone exceed this, target the step with css= instead.
 export const MAX_PICK_CANDIDATES = 254;
 
-export interface PickResult {
-  id: number | null;
-  probability: number; // p of the chosen option
-  confidence?: number; // TypeSafe Choice `confidence`; absent on the gateway path
-  probabilities: Record<string, number>; // option key ('none' or candidate id) → p
-  tokens: number; // whole-request tokens on the FIRST result, 0 on the others (one request)
-}
+export const PickResultSchema = z.object({
+  id: z.number().nullable(),
+  probability: z.number(), // p of the chosen option
+  confidence: z.number().optional(), // TypeSafe Choice confidence; absent on the gateway path
+  probabilities: z.record(z.string(), z.number()), // option key → p
+  tokens: z.number(), // whole-request tokens on the FIRST result, 0 on the others
+});
+export type PickResult = z.infer<typeof PickResultSchema>;
 
 // One Choice question per instruction, all sharing the same criteria and one request. Descriptions
 // are deliberately sent twice (state.elements and criteria). Measured 2026-09-19 with them only in
@@ -236,7 +231,8 @@ export async function judge(state: unknown, claims: string[]): Promise<{ probabi
   return { probabilities: answers.map((a) => a.probability ?? 0), tokens };
 }
 
-export type Decision = 'pass' | 'fail' | 'inconclusive';
+export const DecisionSchema = z.enum(['pass', 'fail', 'inconclusive']);
+export type Decision = z.infer<typeof DecisionSchema>;
 
 // ponytail: fixed thresholds, make them CLI flags if a real suite needs tuning
 const EXPECT_PASS = 0.9;

@@ -1,3 +1,11 @@
+import { StepKind } from './step-kind.js';
+import { z } from 'zod';
+export const CandidateSchema = z.object({
+    id: z.number(),
+    desc: z.string(),
+    frameIndex: z.number(),
+});
+export const CandidateKindSchema = z.enum([StepKind.click, StepKind.hover, StepKind.fill, StepKind.select, StepKind.check, StepKind.upload, 'region']);
 const CLICK_SELECTOR = 'a, button, input, select, textarea, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=radio], [role=option], [role=listbox] li, [role=menuitemradio], [onclick]';
 const FILL_SELECTOR = 'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea, [contenteditable=true]';
 const SELECT_SELECTOR = 'select';
@@ -5,12 +13,12 @@ const CHECK_SELECTOR = 'input[type=checkbox], input[type=radio], [role=checkbox]
 const UPLOAD_SELECTOR = 'input[type=file]';
 const REGION_SELECTOR = 'main, section, article, dialog, nav, header, footer, aside, form, table, [role=region], [role=dialog], [role=main], [role=tabpanel], [role=list]';
 const SELECTORS = {
-    click: CLICK_SELECTOR,
-    hover: `${CLICK_SELECTOR}, img, svg, figure`, // hover targets are often plain images with no clickable signal
-    fill: FILL_SELECTOR,
-    select: SELECT_SELECTOR,
-    check: CHECK_SELECTOR,
-    upload: UPLOAD_SELECTOR,
+    [StepKind.click]: CLICK_SELECTOR,
+    [StepKind.hover]: `${CLICK_SELECTOR}, img, svg, figure`, // hover targets are often plain images with no clickable signal
+    [StepKind.fill]: FILL_SELECTOR,
+    [StepKind.select]: SELECT_SELECTOR,
+    [StepKind.check]: CHECK_SELECTOR,
+    [StepKind.upload]: UPLOAD_SELECTOR,
     region: REGION_SELECTOR,
 };
 /** Wait until the DOM stops mutating for `quietMs` (debounced autocompletes, modals), giving up after `maxMs`. */
@@ -155,8 +163,8 @@ function frameLabel(frame) {
 }
 export async function candidates(page, kind, max) {
     const selector = SELECTORS[kind];
-    const includeExtras = kind === 'click' || kind === 'hover';
-    const skipVisibility = kind === 'upload';
+    const includeExtras = kind === StepKind.click || kind === StepKind.hover;
+    const skipVisibility = kind === StepKind.upload;
     const out = [];
     const frames = page.frames();
     for (let frameIndex = 0; frameIndex < frames.length && out.length < max; frameIndex++) {
@@ -184,6 +192,12 @@ export async function candidates(page, kind, max) {
 export function elementById(page, id, frameIndex = 0) {
     return page.frames()[frameIndex].locator(`[data-jev-id="${id}"]`);
 }
+export const SnapshotSchema = z.object({
+    url: z.string(),
+    title: z.string(),
+    aria: z.string(),
+    truncated: z.boolean(),
+});
 const ARIA_MAX_CHARS = 60_000; // ponytail: hard truncate, no smart summarization — ≈15k tokens, ≈$0.0006/call
 function capAria(s) {
     return s.length > ARIA_MAX_CHARS ? { aria: s.slice(0, ARIA_MAX_CHARS), truncated: true } : { aria: s, truncated: false };

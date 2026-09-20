@@ -1,3 +1,4 @@
+import { StepKind } from './step-kind.js';
 import { writeFileSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { z } from 'zod';
@@ -8,7 +9,7 @@ import type { Spec } from './spec.js';
 import { parseStep, interpolate } from './spec.js';
 import { openSession, loadHooks, runSetup, type Session, type HooksModule, type RunOptions } from './runner.js';
 import { runStep, label, resolveLocators, type StepResult } from './steps.js';
-import { snapshot } from './page.js';
+import { snapshot, CandidateKindSchema } from './page.js';
 
 // Leaf paths of `data` as `${hooks.a.b}` placeholders for the `open` response — never the values
 // themselves, since leased data can be credentials. Arrays and non-object leaves are leaves.
@@ -119,7 +120,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
           throw err;
         }
       }
-      const result = await runStep(session.ctx, { kind: 'goto', url });
+      const result = await runStep(session.ctx, { kind: StepKind.goto, url });
       if (result.status === 'error') throw new Error(result.detail ?? 'goto failed');
       transcript.push({ goto: url }); // so `save` replays the navigation too
       const title = await session.ctx.page.title();
@@ -149,7 +150,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
     'find',
     {
       description: "Dry run of a step target: tells you what Jev would pick, without acting.",
-      inputSchema: { kind: z.enum(['click', 'hover', 'fill', 'select', 'check', 'upload', 'region']), target: z.string() },
+      inputSchema: { kind: CandidateKindSchema, target: z.string() },
     },
     async ({ kind, target }) => {
       if (!session) throw new Error('call open first');

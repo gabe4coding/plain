@@ -1,41 +1,49 @@
+import { StepKind } from './step-kind.js';
+import { z } from 'zod';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { candidates, elementById, settle, snapshot, snapshotRegion, } from './page.js';
 import { pickElements, judge, decide, isTooLong, MAX_PICK_CANDIDATES } from './jev.js';
+export const StatusSchema = z.enum(['pass', 'fail', 'inconclusive', 'error', 'skipped']);
+export const StepResultSchema = z.object({
+    step: z.string(),
+    status: StatusSchema,
+    detail: z.string().optional(),
+});
 export function label(step) {
     switch (step.kind) {
-        case 'goto':
+        case StepKind.goto:
             return `goto ${step.url}`;
-        case 'fill':
+        case StepKind.fill:
             return `fill "${step.target}"`;
-        case 'click':
+        case StepKind.click:
             return `click "${step.target}"`;
-        case 'hover':
+        case StepKind.hover:
             return `hover "${step.target}"`;
-        case 'dblclick':
+        case StepKind.dblclick:
             return `dblclick "${step.target}"`;
-        case 'rightclick':
+        case StepKind.rightclick:
             return `rightclick "${step.target}"`;
-        case 'select':
+        case StepKind.select:
             return `select "${step.value}" in "${step.target}"`;
-        case 'check':
+        case StepKind.check:
             return `check "${step.target}"`;
-        case 'uncheck':
+        case StepKind.uncheck:
             return `uncheck "${step.target}"`;
-        case 'upload':
+        case StepKind.upload:
             return `upload ${step.files.length} file(s) to "${step.target}"`;
-        case 'scroll':
+        case StepKind.scroll:
             return `scroll "${step.target}"`;
-        case 'wait':
+        case StepKind.wait:
             return `wait "${step.condition}"`;
-        case 'press':
+        case StepKind.press:
             return `press ${step.key}`;
-        case 'drag':
+        case StepKind.drag:
             return `drag "${step.source}" to "${step.target}"`;
-        case 'mouse':
+        case StepKind.mouse:
             return `mouse to (${step.x}, ${step.y})`;
-        case 'expect': {
+        case StepKind.expect: {
             const claim = step.expectations.length > 1 ? step.expectations.join(' | ') : step.expectations[0];
             return step.within ? `expect "${claim}" within "${step.within}"` : `expect "${claim}"`;
         }
@@ -169,7 +177,7 @@ async function judgeSnapshot(ctx, snap, claims) {
     }
 }
 async function runDrag(ctx, step, stepLabel) {
-    const [rs, rt] = await resolveLocators(ctx.page, 'click', [step.source, step.target]);
+    const [rs, rt] = await resolveLocators(ctx.page, StepKind.click, [step.source, step.target]);
     trackResolved(ctx, rs);
     trackResolved(ctx, rt);
     if (!rs.locator) {
@@ -222,7 +230,7 @@ async function runWait(ctx, step, stepLabel) {
     if (passed) {
         return { step: stepLabel, status: 'pass', detail: `p=${lastProbability.toFixed(2)} after ${polls} poll(s)` };
     }
-    const file = dumpDebug('wait', { condition: step.condition, probability: lastProbability, state: lastSnap });
+    const file = dumpDebug(StepKind.wait, { condition: step.condition, probability: lastProbability, state: lastSnap });
     return {
         step: stepLabel,
         status: 'inconclusive',
@@ -240,7 +248,7 @@ async function runExpect(ctx, step, stepLabel) {
             detail += ' (aria truncated at 60k chars)';
         if (status !== 'pass') {
             // Dump what Jev saw so the author can tune the expectations against the real state.
-            const file = dumpDebug('expect', { expectations: step.expectations, probabilities, state: snap });
+            const file = dumpDebug(StepKind.expect, { expectations: step.expectations, probabilities, state: snap });
             detail += ` — state: ${file}`;
         }
         return { step: stepLabel, status, detail };
@@ -259,25 +267,25 @@ async function runExpect(ctx, step, stepLabel) {
 export async function runStep(ctx, step) {
     const stepLabel = label(step);
     switch (step.kind) {
-        case 'goto': {
+        case StepKind.goto: {
             const url = resolveUrl(ctx.spec.url, step.url);
             await ctx.page.goto(url, { waitUntil: 'load' });
             return { step: stepLabel, status: 'pass' };
         }
-        case 'press': {
+        case StepKind.press: {
             await mayNavigate(ctx.page, () => ctx.page.keyboard.press(step.key));
             return { step: stepLabel, status: 'pass' };
         }
-        case 'drag':
+        case StepKind.drag:
             return runDrag(ctx, step, stepLabel);
-        case 'mouse': {
+        case StepKind.mouse: {
             await ctx.page.mouse.move(step.x, step.y);
             return { step: stepLabel, status: 'pass' };
         }
-        case 'click':
-            return withResolved(ctx, 'click', step.target, stepLabel, (loc) => mayNavigate(ctx.page, () => loc.click()));
-        case 'fill':
-            return withResolved(ctx, 'fill', step.target, stepLabel, async (loc) => {
+        case StepKind.click:
+            return withResolved(ctx, StepKind.click, step.target, stepLabel, (loc) => mayNavigate(ctx.page, () => loc.click()));
+        case StepKind.fill:
+            return withResolved(ctx, StepKind.fill, step.target, stepLabel, async (loc) => {
                 await loc.fill(step.value);
                 // Typing usually fires a debounced request (autocomplete, validation); settle() alone can find
                 // a quiet DOM before that request even starts. Give one triggered response a moment to land.
@@ -285,15 +293,15 @@ export async function runStep(ctx, step) {
                     .waitForResponse((res) => ['xhr', 'fetch'].includes(res.request().resourceType()), { timeout: 1500 })
                     .catch(() => { });
             });
-        case 'hover':
-            return withResolved(ctx, 'hover', step.target, stepLabel, (loc) => loc.hover());
-        case 'dblclick':
-        case 'rightclick': {
-            const dbl = step.kind === 'dblclick';
-            return withResolved(ctx, 'click', step.target, stepLabel, (loc) => mayNavigate(ctx.page, () => (dbl ? loc.dblclick() : loc.click({ button: 'right' }))));
+        case StepKind.hover:
+            return withResolved(ctx, StepKind.hover, step.target, stepLabel, (loc) => loc.hover());
+        case StepKind.dblclick:
+        case StepKind.rightclick: {
+            const dbl = step.kind === StepKind.dblclick;
+            return withResolved(ctx, StepKind.click, step.target, stepLabel, (loc) => mayNavigate(ctx.page, () => (dbl ? loc.dblclick() : loc.click({ button: 'right' }))));
         }
-        case 'select':
-            return withResolved(ctx, 'select', step.target, stepLabel, async (loc) => {
+        case StepKind.select:
+            return withResolved(ctx, StepKind.select, step.target, stepLabel, async (loc) => {
                 try {
                     await loc.selectOption({ label: step.value });
                 }
@@ -301,30 +309,30 @@ export async function runStep(ctx, step) {
                     await loc.selectOption(step.value);
                 }
             });
-        case 'check':
-        case 'uncheck': {
-            const doCheck = step.kind === 'check';
-            return withResolved(ctx, 'check', step.target, stepLabel, (loc) => (doCheck ? loc.check() : loc.uncheck()));
+        case StepKind.check:
+        case StepKind.uncheck: {
+            const doCheck = step.kind === StepKind.check;
+            return withResolved(ctx, StepKind.check, step.target, stepLabel, (loc) => (doCheck ? loc.check() : loc.uncheck()));
         }
-        case 'upload':
-            return withResolved(ctx, 'upload', step.target, stepLabel, (loc) => {
+        case StepKind.upload:
+            return withResolved(ctx, StepKind.upload, step.target, stepLabel, (loc) => {
                 const paths = step.files.map((f) => path.resolve(ctx.spec.dir, f));
                 return loc.setInputFiles(paths);
             });
-        case 'scroll': {
+        case StepKind.scroll: {
             if (step.target === 'top' || step.target === 'bottom') {
                 await ctx.page.evaluate((pos) => window.scrollTo(0, pos === 'top' ? 0 : document.body.scrollHeight), step.target);
                 await settle(ctx.page).catch(() => { });
                 return { step: stepLabel, status: 'pass' };
             }
-            return withResolved(ctx, 'click', step.target, stepLabel, async (loc) => {
+            return withResolved(ctx, StepKind.click, step.target, stepLabel, async (loc) => {
                 await loc.scrollIntoViewIfNeeded();
                 await settle(ctx.page).catch(() => { });
             });
         }
-        case 'wait':
+        case StepKind.wait:
             return runWait(ctx, step, stepLabel);
-        case 'expect':
+        case StepKind.expect:
             return runExpect(ctx, step, stepLabel);
     }
 }

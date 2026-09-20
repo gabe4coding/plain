@@ -2,6 +2,9 @@
 
 A spec is one YAML file: a name, a start URL, optional settings, and a list of steps run in order.
 
+Specs are validated with Zod when loaded. Invalid fields report the source file and, for steps,
+the zero-based step index. Mapping fields must be objects, and coordinates must be finite numbers.
+
 ```yaml
 name: login works                        # label in the report
 url: https://the-internet.herokuapp.com  # base for relative `goto`

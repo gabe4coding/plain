@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { loadSpec, interpolate } from './spec.js';
+import { loadSpec, interpolate, parseStep } from './spec.js';
 
 function specFile(yaml: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'plainwright-spec-test-'));
@@ -279,4 +279,39 @@ test('interpolate fails on an unknown namespace and on an unresolved placeholder
 
 test('interpolate returns a value without placeholders unchanged', () => {
   assert.equal(interpolate('plain string', { env: {}, hooks: {} }, 'test spec'), 'plain string');
+});
+
+
+test('step normalization preserves empty fill values and ignores nested metadata', () => {
+  assert.deepEqual(parseStep('mcp', 0, {
+    fill: { target: 'the input', value: '', kind: 'click', optional: true, extra: 'ignored' },
+  }), { kind: 'fill', target: 'the input', value: '', optional: false });
+  assert.deepEqual(parseStep('mcp', 1, { goto: '/login', optional: 'true' }), {
+    kind: 'goto', url: '/login', optional: false,
+  });
+});
+
+test('step validation reports source, step index and invalid field', () => {
+  assert.throws(() => parseStep('session', 3, { fill: { target: 'input', value: 42 } }),
+    /invalid spec: session: step 3: "value"/);
+  for (const raw of [null, [], { click: 'a', hover: 'b' }, { unknown: 'a' }, { fill: [] }]) {
+    assert.throws(() => parseStep('session', 3, raw), /invalid spec: session: step 3/);
+  }
+});
+
+test('spec validation rejects arrays for mappings and non-finite coordinates', () => {
+  for (const setting of ['env: []', 'auth: []', 'geolocation: []', 'geolocation: { lat: .nan, lon: 0 }']) {
+    assert.throws(() => loadSpec(specFile(`name: x\nurl: /\n${setting}\nsteps:\n  - goto: /\n`)), /invalid spec:/);
+  }
+  for (const x of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => parseStep('session', 0, { mouse: { x, y: -10 } }), /step 0: "x"/);
+  }
+});
+
+test('file specs require steps while unknown metadata is ignored', () => {
+  assert.throws(() => loadSpec(specFile('name: x\nurl: /\nsteps: []\n')), /"steps"/);
+  const spec = loadSpec(specFile('name: x\nurl: /\ndialogs: null\nmetadata: ignored\nsteps:\n  - goto: /\n'));
+  assert.equal(spec.dialogs, 'accept');
+  assert.deepEqual(spec.env, {});
+  assert.equal('metadata' in spec, false);
 });
