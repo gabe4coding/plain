@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { loadSpec } from './spec.js';
-import { runSpec, closeSharedBrowser, type RunOptions } from './runner.js';
+import { loadSpec, type Spec } from './spec.js';
+import { runSpec, closeSharedBrowser, mapLimitSettled, type RunOptions, type TestResult } from './runner.js';
 import { serveMcp } from './mcp.js';
 import { formatMs } from './steps.js';
 import { provider, MODEL_BY_PROVIDER, USER_ENV_FILE } from './jev.js';
@@ -24,14 +24,21 @@ const { values, positionals } = parseArgs({
     cdp: { type: 'string' },
     channel: { type: 'string' },
     timing: { type: 'boolean', default: false },
+    workers: { type: 'string', default: '1' },
   },
   allowPositionals: true,
 });
 
 if (positionals.length === 0) {
   console.error(
-    'usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] [--channel chrome] [--timing] <spec.yaml> [more.yaml ...] | mcp'
+    'usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] [--channel chrome] [--timing] [--workers N] <spec.yaml> [more.yaml ...] | mcp'
   );
+  process.exit(2);
+}
+
+const workers = Math.max(1, parseInt(values.workers, 10));
+if (Number.isNaN(workers)) {
+  console.error(`plainwright: --workers must be a number, got "${values.workers}"`);
   process.exit(2);
 }
 
@@ -74,28 +81,43 @@ if (positionals[0] === 'mcp') {
 
   const runMs: Record<string, number> = {};
 
-  for (const file of positionals) {
+  // Each spec's work (load + run) is wrapped so it never rejects — a per-spec failure becomes data
+  // (`error`), not a thrown promise — and submitted through the worker pool. Printing then iterates
+  // the per-item promises in input order, printing each as soon as it resolves: with --workers 1 the
+  // single worker runs specs strictly one after another, so output stays byte-identical to before;
+  // with more workers, later specs keep running while an earlier one is still being printed.
+  type SpecOutcome = { file: string; spec?: Spec; result?: TestResult; error?: unknown };
+  const outcomes = mapLimitSettled(positionals, workers, async (file): Promise<SpecOutcome> => {
     try {
       const spec = loadSpec(file);
       const result = await runSpec(spec, opts);
-      if (result.status !== 'pass') allPassed = false;
-      console.log(`${icon(result.status)} ${spec.name}  (${result.jevCalls} Jev calls, ${result.totalTokens} tokens)`);
-      const specMs: Record<string, number> = {};
-      for (const s of result.steps) {
-        console.log(`  ${icon(s.status)} ${s.step}${s.detail ? ' ' + s.detail : ''}`);
-        if (values.timing && s.ms) {
-          console.log(`    ms ${formatMs(s.ms)}`);
-          addMs(specMs, s.ms);
-        }
-      }
-      if (values.timing && Object.keys(specMs).length) {
-        console.log(`  ms spec ${formatMs(specMs)}`);
-        addMs(runMs, specMs);
-      }
-    } catch (err) {
+      return { file, spec, result };
+    } catch (error) {
+      return { file, error };
+    }
+  });
+
+  for (const outcome of outcomes) {
+    const { file, spec, result, error } = await outcome;
+    if (!spec || !result) {
       allPassed = false;
       console.log(`✘ ${file}`);
-      console.log(`  error: ${err instanceof Error ? err.message : String(err)}`);
+      console.log(`  error: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    if (result.status !== 'pass') allPassed = false;
+    console.log(`${icon(result.status)} ${spec.name}  (${result.jevCalls} Jev calls, ${result.totalTokens} tokens)`);
+    const specMs: Record<string, number> = {};
+    for (const s of result.steps) {
+      console.log(`  ${icon(s.status)} ${s.step}${s.detail ? ' ' + s.detail : ''}`);
+      if (values.timing && s.ms) {
+        console.log(`    ms ${formatMs(s.ms)}`);
+        addMs(specMs, s.ms);
+      }
+    }
+    if (values.timing && Object.keys(specMs).length) {
+      console.log(`  ms spec ${formatMs(specMs)}`);
+      addMs(runMs, specMs);
     }
   }
 

@@ -52,20 +52,64 @@ export const RunOptionsSchema = z.object({
 });
 // One Chromium per launch profile for the whole process; each spec gets its own context (isolation
 // unchanged) and only the context is closed per spec. Relaunched if headed/channel change or it died.
+// The in-flight launch *promise* is memoized (not the resolved Browser): concurrent first callers
+// (--workers > 1) then all await the same launch instead of each starting its own Chromium.
 let shared = null;
 export async function sharedBrowser(opts) {
     const key = `${!opts.headed}|${opts.channel ?? ''}`;
-    if (shared && shared.key === key && shared.browser.isConnected())
-        return shared.browser;
-    await closeSharedBrowser();
-    shared = { key, browser: await chromium.launch({ headless: !opts.headed, channel: opts.channel }) };
+    if (shared && shared.key === key) {
+        const b = await shared.browser;
+        if (b.isConnected())
+            return b;
+    }
+    // ponytail: only await closeSharedBrowser() when there's actually something to replace — on the
+    // very first call `shared` is still null here, so this stays synchronous up to the assignment
+    // below and concurrent callers see it before racing off to launch their own browser.
+    if (shared)
+        await closeSharedBrowser();
+    if (!shared) {
+        const entry = { key, browser: chromium.launch({ headless: !opts.headed, channel: opts.channel }) };
+        shared = entry;
+        entry.browser.catch(() => {
+            if (shared === entry)
+                shared = null; // don't cache a failed launch — let the next call retry
+        });
+    }
     return shared.browser;
 }
 export async function closeSharedBrowser() {
-    const b = shared?.browser;
+    const s = shared;
     shared = null;
-    if (b)
-        await b.close().catch(() => { });
+    if (s)
+        await (await s.browser).close().catch(() => { });
+}
+/** Runs `fn` over `items` with at most `limit` in flight; each item's promise settles independently, in
+ *  input order — so a caller can await them one by one while later ones keep running in the background. */
+export function mapLimitSettled(items, limit, fn) {
+    const results = [];
+    const settlers = [];
+    for (let i = 0; i < items.length; i++) {
+        results.push(new Promise((resolve, reject) => (settlers[i] = { resolve, reject })));
+    }
+    let next = 0;
+    async function worker() {
+        while (next < items.length) {
+            const i = next++;
+            try {
+                settlers[i].resolve(await fn(items[i]));
+            }
+            catch (err) {
+                settlers[i].reject(err);
+            }
+        }
+    }
+    for (let i = 0; i < Math.min(limit, items.length); i++)
+        worker(); // fire and forget: callers await `results`
+    return results;
+}
+/** Runs `fn` over `items` with at most `limit` in flight; resolves to results in input order. */
+export async function mapLimit(items, limit, fn) {
+    return Promise.all(mapLimitSettled(items, limit, fn));
 }
 // Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
 // reuse the shared throwaway browser (the default). Returns the page plus how to release it: attaching must

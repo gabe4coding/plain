@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { loadSpec } from './spec.js';
-import { runSpec, closeSharedBrowser } from './runner.js';
+import { runSpec, closeSharedBrowser, mapLimitSettled } from './runner.js';
 import { serveMcp } from './mcp.js';
 import { formatMs } from './steps.js';
 import { provider, MODEL_BY_PROVIDER, USER_ENV_FILE } from './jev.js';
@@ -23,11 +23,17 @@ const { values, positionals } = parseArgs({
         cdp: { type: 'string' },
         channel: { type: 'string' },
         timing: { type: 'boolean', default: false },
+        workers: { type: 'string', default: '1' },
     },
     allowPositionals: true,
 });
 if (positionals.length === 0) {
-    console.error('usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] [--channel chrome] [--timing] <spec.yaml> [more.yaml ...] | mcp');
+    console.error('usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] [--channel chrome] [--timing] [--workers N] <spec.yaml> [more.yaml ...] | mcp');
+    process.exit(2);
+}
+const workers = Math.max(1, parseInt(values.workers, 10));
+if (Number.isNaN(workers)) {
+    console.error(`plainwright: --workers must be a number, got "${values.workers}"`);
     process.exit(2);
 }
 const opts = {
@@ -70,30 +76,38 @@ else {
             target[k] = (target[k] ?? 0) + v;
     };
     const runMs = {};
-    for (const file of positionals) {
+    const outcomes = mapLimitSettled(positionals, workers, async (file) => {
         try {
             const spec = loadSpec(file);
             const result = await runSpec(spec, opts);
-            if (result.status !== 'pass')
-                allPassed = false;
-            console.log(`${icon(result.status)} ${spec.name}  (${result.jevCalls} Jev calls, ${result.totalTokens} tokens)`);
-            const specMs = {};
-            for (const s of result.steps) {
-                console.log(`  ${icon(s.status)} ${s.step}${s.detail ? ' ' + s.detail : ''}`);
-                if (values.timing && s.ms) {
-                    console.log(`    ms ${formatMs(s.ms)}`);
-                    addMs(specMs, s.ms);
-                }
-            }
-            if (values.timing && Object.keys(specMs).length) {
-                console.log(`  ms spec ${formatMs(specMs)}`);
-                addMs(runMs, specMs);
-            }
+            return { file, spec, result };
         }
-        catch (err) {
+        catch (error) {
+            return { file, error };
+        }
+    });
+    for (const outcome of outcomes) {
+        const { file, spec, result, error } = await outcome;
+        if (!spec || !result) {
             allPassed = false;
             console.log(`✘ ${file}`);
-            console.log(`  error: ${err instanceof Error ? err.message : String(err)}`);
+            console.log(`  error: ${error instanceof Error ? error.message : String(error)}`);
+            continue;
+        }
+        if (result.status !== 'pass')
+            allPassed = false;
+        console.log(`${icon(result.status)} ${spec.name}  (${result.jevCalls} Jev calls, ${result.totalTokens} tokens)`);
+        const specMs = {};
+        for (const s of result.steps) {
+            console.log(`  ${icon(s.status)} ${s.step}${s.detail ? ' ' + s.detail : ''}`);
+            if (values.timing && s.ms) {
+                console.log(`    ms ${formatMs(s.ms)}`);
+                addMs(specMs, s.ms);
+            }
+        }
+        if (values.timing && Object.keys(specMs).length) {
+            console.log(`  ms spec ${formatMs(specMs)}`);
+            addMs(runMs, specMs);
         }
     }
     await closeSharedBrowser();

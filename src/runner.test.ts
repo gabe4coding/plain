@@ -4,7 +4,7 @@ import { writeFileSync, mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSpec } from './spec.js';
-import { runSpec, sharedBrowser, closeSharedBrowser } from './runner.js';
+import { runSpec, sharedBrowser, closeSharedBrowser, mapLimit } from './runner.js';
 import { chromium } from 'playwright';
 
 const OPTS = { headed: false, timeout: 5000 };
@@ -192,4 +192,21 @@ test('sharedBrowser reuses one Chromium for the same options; closeSharedBrowser
   assert.equal(a, b, 'same options reuse the same Browser instance');
   await closeSharedBrowser();
   assert.equal(a.isConnected(), false, 'closed after closeSharedBrowser()');
+});
+
+test('mapLimit runs at most `limit` tasks concurrently and resolves results in input order', async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const run = async (i: number): Promise<number> => {
+    inFlight++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    inFlight--;
+    return i;
+  };
+
+  const results = await mapLimit([0, 1, 2, 3], 2, run);
+
+  assert.deepEqual(results, [0, 1, 2, 3], 'results are in input order');
+  assert.equal(maxInFlight, 2, 'never more than `limit` tasks in flight');
 });
