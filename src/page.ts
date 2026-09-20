@@ -95,6 +95,26 @@ export function settle(page: Page, quietMs = 500, maxMs = 3000): Promise<void> {
   );
 }
 
+/** Resolves true on the first DOM mutation, false after `maxMs` without one. */
+export function waitForMutation(page: Page, maxMs: number): Promise<boolean> {
+  return page.evaluate(
+    (maxMs) =>
+      new Promise<boolean>((resolve) => {
+        const obs = new MutationObserver(() => {
+          obs.disconnect();
+          clearTimeout(timer);
+          resolve(true);
+        });
+        const timer = setTimeout(() => {
+          obs.disconnect();
+          resolve(false);
+        }, maxMs);
+        obs.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+      }),
+    maxMs
+  );
+}
+
 /**
  * Runs inside the page/frame. Walks the whole document — including open shadow roots — collecting
  * elements that match `selector`. For `includeExtras` (the `click` kind), also collects React-style

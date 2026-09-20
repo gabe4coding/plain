@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium, type Browser, type Page } from 'playwright';
-import { candidates, installSettleObserver, settle } from './page.js';
+import { candidates, installSettleObserver, settle, waitForMutation } from './page.js';
 import { mayNavigate, type StepContext } from './steps.js';
 
 let browser: Browser;
@@ -92,4 +92,23 @@ test('mayNavigate: returns quickly on a no-op action, waits out a triggered fetc
 
   await page.unroute('**/slow');
   await page.unroute('https://example.test/');
+});
+
+test('waitForMutation: false on a static page after maxMs, true as soon as a mutation lands', async () => {
+  await page.goto('about:blank');
+  await page.setContent('<body><p>x</p></body>');
+  const staticStart = Date.now();
+  const staticResult = await waitForMutation(page, 300);
+  const staticElapsed = Date.now() - staticStart;
+  assert.equal(staticResult, false);
+  assert.ok(staticElapsed >= 250, `should wait out the full maxMs on a static page, took ${staticElapsed}ms`);
+
+  await page.evaluate(() => {
+    setTimeout(() => document.body.appendChild(document.createElement('p')), 100);
+  });
+  const mutateStart = Date.now();
+  const mutateResult = await waitForMutation(page, 1500);
+  const mutateElapsed = Date.now() - mutateStart;
+  assert.equal(mutateResult, true);
+  assert.ok(mutateElapsed < 800, `should resolve soon after the mutation, took ${mutateElapsed}ms`);
 });

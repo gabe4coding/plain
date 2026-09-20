@@ -11,6 +11,7 @@ import {
   settle,
   snapshot,
   snapshotRegion,
+  waitForMutation,
   type Candidate,
   type CandidateKind,
   type Snapshot,
@@ -379,36 +380,57 @@ async function runWait(ctx: StepContext, step: Extract<Step, { kind: typeof Step
     return { step: stepLabel, status: 'pass' };
   }
   const MAX_POLLS = 8; // ponytail: hard cap on Jev polls per wait, floor against a condition that never holds
+  const MIN_SNAPSHOT_GAP_MS = 250; // floor against a hot loop: settle→snapshot→skip→wake spinning on a constantly-mutating, unchanged-key page
   const deadline = Date.now() + ctx.timeout;
   let polls = 0;
+  let skipped = 0;
   let lastProbability = 0;
   let lastSnap: Snapshot | null = null;
+  let lastKey: string | null = null;
   let passed = false;
   while (polls < MAX_POLLS && Date.now() < deadline) {
+    const snapStart = Date.now();
     await timed(ctx, 'settle', () => settle(ctx.page).catch(() => {}));
     const snap = await timed(ctx, 'snapshot', () => snapshot(ctx.page));
-    const { probabilities } = await judgeSnapshot(ctx, snap, [step.condition]);
-    const probability = probabilities[0];
-    polls++;
-    ctx.ms.polls = polls;
-    lastProbability = probability;
-    lastSnap = snap;
-    if (decide(probability, 'expect') === 'pass') {
-      passed = true;
-      break;
+    // Everything judgeSnapshot sends Jev besides the claims: the snapshot and ctx.events (downloads,
+    // console errors, dialogs). If neither changed since the last poll and Jev already said a clear no,
+    // asking again buys nothing — skip the round trip. A grey-zone answer is re-asked as documented
+    // ("wait repeats the question"): a borderline p flips between runs, and the retry is what rescues it.
+    const key = JSON.stringify([snap, ctx.events]);
+    const unchanged = key === lastKey && decide(lastProbability, 'expect') === 'fail';
+    if (unchanged) {
+      skipped++;
+    } else {
+      lastKey = key;
+      const { probabilities } = await judgeSnapshot(ctx, snap, [step.condition]);
+      const probability = probabilities[0];
+      polls++;
+      ctx.ms.polls = polls;
+      lastProbability = probability;
+      lastSnap = snap;
+      if (decide(probability, 'expect') === 'pass') {
+        passed = true;
+        break;
+      }
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    await new Promise((resolve) => setTimeout(resolve, Math.min(1500, remaining)));
+    // Navigation mid-evaluate throws — treat that as "something changed" rather than fail the step.
+    await timed(ctx, 'idle', () => waitForMutation(ctx.page, Math.min(1500, remaining)).catch(() => {}));
+    if (unchanged) {
+      const shortfall = MIN_SNAPSHOT_GAP_MS - (Date.now() - snapStart);
+      if (shortfall > 0) await new Promise((resolve) => setTimeout(resolve, shortfall));
+    }
   }
+  const skippedSuffix = skipped > 0 ? `, ${skipped} unchanged` : '';
   if (passed) {
-    return { step: stepLabel, status: 'pass', detail: `p=${lastProbability.toFixed(2)} after ${polls} poll(s)` };
+    return { step: stepLabel, status: 'pass', detail: `p=${lastProbability.toFixed(2)} after ${polls} poll(s)${skippedSuffix}` };
   }
   const file = dumpDebug(StepKind.wait, { condition: step.condition, probability: lastProbability, state: lastSnap });
   return {
     step: stepLabel,
     status: 'inconclusive',
-    detail: `p=${lastProbability.toFixed(2)} after ${polls} poll(s) — state: ${file}`,
+    detail: `p=${lastProbability.toFixed(2)} after ${polls} poll(s)${skippedSuffix} — state: ${file}`,
   };
 }
 
