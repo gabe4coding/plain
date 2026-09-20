@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium, type BrowserContextOptions, type Page } from 'playwright';
 import { interpolate, type Spec } from './spec.js';
-import { runStep, label, StatusSchema, StepResultSchema, type StepContext, type StepResult, type Status } from './steps.js';
+import { runStep, label, StatusSchema, StepResultSchema, holdActivity, type StepContext, type StepResult, type Status } from './steps.js';
 import { installSettleObserver } from './page.js';
 
 // What a hooks module (`spec.hooks`) may export. Both are optional; anything else is rejected once
@@ -139,11 +139,16 @@ export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: 
       page = popup;
     });
     p.on('download', async (download) => {
-      const dir = path.join(os.tmpdir(), 'plainwright', 'downloads');
-      fs.mkdirSync(dir, { recursive: true });
-      const dest = path.join(dir, download.suggestedFilename());
-      await download.saveAs(dest);
-      note(`download: "${download.suggestedFilename()}" saved to ${dest}`);
+      const release = holdActivity(p); // the click that started it keeps waiting until the note is written
+      try {
+        const dir = path.join(os.tmpdir(), 'plainwright', 'downloads');
+        fs.mkdirSync(dir, { recursive: true });
+        const dest = path.join(dir, download.suggestedFilename());
+        await download.saveAs(dest);
+        note(`download: "${download.suggestedFilename()}" saved to ${dest}`);
+      } finally {
+        release();
+      }
     });
     p.on('pageerror', (err) => note(`pageerror: ${err.message}`));
     p.on('console', (msg) => {

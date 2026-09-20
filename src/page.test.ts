@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium, type Browser, type Page } from 'playwright';
 import { candidates, installSettleObserver, settle } from './page.js';
+import { mayNavigate, type StepContext } from './steps.js';
 
 let browser: Browser;
 let page: Page;
@@ -60,4 +61,35 @@ test('settle: resolves immediately when the DOM has already been quiet for quiet
   const busyStart = Date.now();
   await settle(page, 500, 1500);
   assert.ok(Date.now() - busyStart >= 1000, 'continuously-mutating page should wait out to near the cap');
+});
+
+test('mayNavigate: returns quickly on a no-op action, waits out a triggered fetch plus its grace', async () => {
+  const ctx: StepContext = { page, spec: { name: 't', url: '', dir: process.cwd(), dialogs: 'accept', steps: [] }, timeout: 5000, events: [], track: () => {}, ms: {} };
+
+  // A real origin so the page's own fetch('/slow') resolves relatively; the navigation itself is
+  // routed too so this never touches the real network.
+  await page.route('https://example.test/', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }));
+  await page.goto('https://example.test/');
+  await page.route('**/slow', async (route) => {
+    await new Promise((r) => setTimeout(r, 400));
+    await route.fulfill({ contentType: 'application/json', body: '{}' });
+  });
+  await page.setContent(
+    `<button id="noop">noop</button><button id="slow">slow</button>` +
+      `<script>document.getElementById('slow').onclick = () => setTimeout(() => fetch('/slow'), 100);</script>`
+  );
+
+  const fastStart = Date.now();
+  await mayNavigate(ctx, () => page.click('#noop'));
+  assert.ok(Date.now() - fastStart < 500, `no-op action should finish well under the cap, took ${Date.now() - fastStart}ms`);
+
+  const slowStart = Date.now();
+  await mayNavigate(ctx, () => page.click('#slow'));
+  const elapsed = Date.now() - slowStart;
+  // fetch starts ~100ms in, the route fulfils it ~400ms later (~500ms), then the default 200ms grace ≈ 700ms
+  assert.ok(elapsed >= 500, `should wait out the triggered fetch, took only ${elapsed}ms`);
+  assert.ok(elapsed < 1500, `should return before the hard cap, took ${elapsed}ms`);
+
+  await page.unroute('**/slow');
+  await page.unroute('https://example.test/');
 });

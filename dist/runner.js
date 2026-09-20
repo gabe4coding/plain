@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { interpolate } from './spec.js';
-import { runStep, label, StatusSchema, StepResultSchema } from './steps.js';
+import { runStep, label, StatusSchema, StepResultSchema, holdActivity } from './steps.js';
 import { installSettleObserver } from './page.js';
 // Imports and validates a hooks module — shared by the batch runner and the MCP server's `open
 // {hooks}`, so both fail the same way on a broken module.
@@ -121,11 +121,17 @@ export async function openSession(spec, opts, track) {
             page = popup;
         });
         p.on('download', async (download) => {
-            const dir = path.join(os.tmpdir(), 'plainwright', 'downloads');
-            fs.mkdirSync(dir, { recursive: true });
-            const dest = path.join(dir, download.suggestedFilename());
-            await download.saveAs(dest);
-            note(`download: "${download.suggestedFilename()}" saved to ${dest}`);
+            const release = holdActivity(p); // the click that started it keeps waiting until the note is written
+            try {
+                const dir = path.join(os.tmpdir(), 'plainwright', 'downloads');
+                fs.mkdirSync(dir, { recursive: true });
+                const dest = path.join(dir, download.suggestedFilename());
+                await download.saveAs(dest);
+                note(`download: "${download.suggestedFilename()}" saved to ${dest}`);
+            }
+            finally {
+                release();
+            }
         });
         p.on('pageerror', (err) => note(`pageerror: ${err.message}`));
         p.on('console', (msg) => {

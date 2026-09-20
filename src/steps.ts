@@ -84,19 +84,73 @@ export async function timed<T>(ctx: StepContext, phase: string, fn: () => Promis
   return result;
 }
 
+// Per-page in-flight xhr/fetch counter, wired lazily on first use so a popup that replaces
+// ctx.page (see runner.ts) gets tracked on its first action with no extra setup there.
+const requestTracking = new WeakMap<Page, { pending: number; lastActivity: number }>();
+
+function trackRequests(page: Page): { pending: number; lastActivity: number } {
+  const existing = requestTracking.get(page);
+  if (existing) return existing;
+  const record = { pending: 0, lastActivity: Date.now() };
+  requestTracking.set(page, record);
+  // 'document' too: a click whose navigation turns into a download never fires framenavigated, but its
+  // request is what bridges the gap until the runner's 'download' handler holds the wait (holdActivity).
+  const isXhrOrFetch = (req: { resourceType(): string }) => ['xhr', 'fetch', 'document'].includes(req.resourceType());
+  page.on('request', (req) => {
+    if (isXhrOrFetch(req)) record.pending++;
+  });
+  const onDone = (req: { resourceType(): string }) => {
+    if (isXhrOrFetch(req)) {
+      record.pending = Math.max(0, record.pending - 1);
+      record.lastActivity = Date.now();
+    }
+  };
+  page.on('requestfinished', onDone);
+  page.on('requestfailed', onDone);
+  return record;
+}
+
+/** Marks page activity as pending until the returned function is called; mayNavigate waits for it (1500 ms cap). */
+export function holdActivity(page: Page): () => void {
+  const record = trackRequests(page);
+  record.pending++;
+  return () => {
+    record.pending = Math.max(0, record.pending - 1);
+    record.lastActivity = Date.now();
+  };
+}
+
 /**
- * Run an action that may trigger a navigation (click on a link-like element, Enter in a form) and, if one
- * starts within a short window, wait for the new document to load. Without this the next step reads the
- * old page while the navigation is in flight and can fire a second navigation on top of it.
+ * Run an action that may trigger a navigation (click on a link-like element, Enter in a form) or a
+ * network request (typing that fires a debounced autocomplete/validation call), and wait for whichever
+ * shows up instead of a flat timeout. A navigation always wins and is awaited to `load`. Otherwise: give
+ * the page `graceMs` after the action to start an xhr/fetch, then once none are pending wait another
+ * `graceMs` of quiet before returning. `graceMs` is per-action (clicks settle fast; a debounced input
+ * needs longer). 1500 ms is the hard cap either way.
  */
-async function mayNavigate(ctx: StepContext, action: () => Promise<void>): Promise<void> {
+export async function mayNavigate(ctx: StepContext, action: () => Promise<void>, graceMs = 200): Promise<void> {
   const page = ctx.page;
+  const requests = trackRequests(page); // before the action, so requests it starts are counted
+  let navStarted = false;
   const nav = page
     .waitForEvent('framenavigated', { timeout: 1500, predicate: (f) => f === page.mainFrame() })
-    .then(() => page.waitForLoadState('load'))
-    .catch(() => {}); // no navigation started — that's fine
+    .then(() => {
+      navStarted = true;
+      return page.waitForLoadState('load');
+    })
+    .catch(() => {}); // no navigation started — that's fine, and the pending waitForEvent times out and is caught here
+
   await timed(ctx, 'action', action);
-  await timed(ctx, 'post', () => nav);
+  const actionEnd = Date.now();
+
+  await timed(ctx, 'post', async () => {
+    while (Date.now() - actionEnd < 1500) {
+      if (navStarted) return nav;
+      const quietSince = Math.max(actionEnd, requests.lastActivity);
+      if (requests.pending === 0 && Date.now() - quietSince >= graceMs) return;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  });
 }
 
 function resolveUrl(base: string, path: string): string {
@@ -416,14 +470,8 @@ async function runStepInner(ctx: StepContext, step: Step): Promise<StepResult> {
     case StepKind.click:
       return withResolved(ctx, StepKind.click, step.target, stepLabel, (loc) => mayNavigate(ctx, () => loc.click()));
     case StepKind.fill:
-      return withResolved(ctx, StepKind.fill, step.target, stepLabel, async (loc) => {
-        await timed(ctx, 'action', () => loc.fill(step.value));
-        // Typing usually fires a debounced request (autocomplete, validation); settle() alone can find
-        // a quiet DOM before that request even starts. Give one triggered response a moment to land.
-        await timed(ctx, 'post', () =>
-          ctx.page.waitForResponse((res) => ['xhr', 'fetch'].includes(res.request().resourceType()), { timeout: 1500 }).catch(() => {})
-        );
-      });
+      // Grace 500ms: typing usually fires a debounced request (autocomplete, validation) after ~300-400ms.
+      return withResolved(ctx, StepKind.fill, step.target, stepLabel, (loc) => mayNavigate(ctx, () => loc.fill(step.value), 500));
     case StepKind.hover:
       return withResolved(ctx, StepKind.hover, step.target, stepLabel, (loc) => timed(ctx, 'action', () => loc.hover()));
     case StepKind.dblclick:
