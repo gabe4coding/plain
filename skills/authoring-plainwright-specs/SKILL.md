@@ -1,6 +1,6 @@
 ---
 name: authoring-plainwright-specs
-description: Use when writing, exploring or debugging a plainwright YAML end-to-end test, or when driving a website through the plainwright MCP tools (open, step, find, snapshot, save) — including when a step comes back inconclusive or a saved spec fails on replay.
+description: Use when writing, exploring or debugging a plainwright YAML end-to-end test, or when driving a website through the plainwright MCP tools (open, step, find, snapshot, evaluate, save) — including when a step comes back inconclusive, when reading results off a page the flow reached, or when a saved spec fails on replay.
 ---
 
 # Authoring plainwright specs
@@ -35,6 +35,16 @@ with one clear yes. The lever is wording, not thresholds.
    `${CLAUDE_PLUGIN_ROOT}`). Run it twice. Green twice is done. Anything else goes back to step 2 with the
    dump file.
 
+## Reading data from the page
+
+Steps act; to read results, do not `snapshot` the whole page (tens of thousands of characters).
+
+- `snapshot` with `within: "the results list"` (or `css=...`) returns only that region's tree. A table comes as
+  rows and cells you can read directly.
+- `evaluate` with a JavaScript expression returns clean JSON: `[...document.querySelectorAll('article')].map(a => a.innerText)`.
+
+Neither is recorded by `save`.
+
 ## Writing a target (click, fill, hover, select, check)
 
 One element, one true answer, named the way the accessibility tree names it: role, visible text, and what
@@ -43,6 +53,11 @@ sets it apart from its siblings.
 - `the Login button`, `the username textbox`, `the edit link in the 5th table row`
 - `the cuisine search input (not the location field)`
 - `the earliest available day`, never `an available day`: several valid answers split the probability
+- `check` and `uncheck` mean "make it selected, or not". They work on checkboxes, radios, switches, and filter
+  chips or toggle buttons that expose their state, and do nothing when the state is already right. A chip with
+  no state to read is a `click`.
+- `scroll: bottom` and `scroll: top` scroll the page and report the distance in `detail`. `did not move` means
+  the content scrolls inside an element: `scroll: the results list` instead.
 
 ## Writing a claim (expect, wait)
 
@@ -64,8 +79,8 @@ Read `detail` first: the top guesses say what Jev thought you meant.
 1. First miss: rephrase with the words of the top guess and name the sibling to exclude.
 2. Second miss on the same fact: the fact is the problem, not the words. Assert a different visible effect,
    use a different test value, prove it by acting, or scope with `expect: {that, within}`.
-3. Third miss: `snapshot` with a small `maxChars` to see the tree, then `css=` as the last resort, with a
-   comment saying why.
+3. Third miss: `snapshot` with `within` or a small `maxChars` to see the tree, then `css=` as the last resort,
+   with a comment saying why.
 
 A third rephrasing of the same fact is never the next move.
 
@@ -78,6 +93,8 @@ A third rephrasing of the same fact is never the next move.
 | Hand-writing the YAML instead of `save` | `save`, then edit |
 | Done after one green run | Run twice; flaky steps show on the second |
 | Reading the tool's source to learn the thresholds | They are listed above |
+| `snapshot` of the whole page to read a table | `snapshot` with `within`, or `evaluate` |
+| `check: the Hotels chip` on a plain button | `click` it; `check` needs a state to read |
 
 ## Safety
 

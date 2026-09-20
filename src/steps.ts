@@ -15,7 +15,7 @@ import {
   type CandidateKind,
   type Snapshot,
 } from './page.js';
-import { pickElements, judge, decide, isTooLong, MAX_PICK_CANDIDATES } from './jev.js';
+import { pickElements, judge, decide, isTooLong, MAX_CANDIDATES } from './jev.js';
 
 export const StatusSchema = z.enum(['pass', 'fail', 'inconclusive', 'error', 'skipped']);
 export type Status = z.infer<typeof StatusSchema>;
@@ -108,6 +108,13 @@ function topGuesses(probabilities: Record<string, number>, candidates: Candidate
     .join(' | ');
 }
 
+// What to try instead when a step kind finds nothing at all to choose from.
+const NO_CANDIDATES_HINT: Partial<Record<CandidateKind, string>> = {
+  [StepKind.check]: ' (no checkbox, radio, switch or aria-pressed toggle); for a plain button or chip use click',
+  [StepKind.select]: ' (no native <select>); for a custom dropdown click the control, then click the option',
+  [StepKind.upload]: ' (no file input); if the page opens a picker from a button, use css= on the hidden input',
+};
+
 export interface Resolved {
   locator: Locator | null;
   detail: string;
@@ -139,7 +146,7 @@ export async function resolveLocators(page: Page, kind: CandidateKind, targets: 
     // Let debounced autocompletes, modals etc. finish rendering before we look (networkidle fires too early:
     // it sees the quiet gap *before* a debounced request starts).
     await settle(page).catch(() => {});
-    const cands = await candidates(page, kind, MAX_PICK_CANDIDATES);
+    const cands = await candidates(page, kind, MAX_CANDIDATES);
     const picks = await pickElements(cands, jevTargets, { url: page.url(), title: await page.title() });
 
     jevIndices.forEach((origIndex, j) => {
@@ -152,7 +159,10 @@ export async function resolveLocators(page: Page, kind: CandidateKind, targets: 
       if (!accepted) {
         // Show what Jev was torn between — the wording of the step is the lever to fix this.
         const file = dumpDebug('pick', { instruction: jevTargets[j], probabilities, confidence, candidates: cands });
-        const detail = `${id === null ? 'no matching element' : 'low confidence'} (${cands.length} candidates)${cPart} — top: ${topGuesses(probabilities, cands)} — candidates: ${file}`;
+        const detail =
+          cands.length === 0
+            ? `no candidates: nothing on the page matches a ${kind} target${NO_CANDIDATES_HINT[kind] ?? ''}`
+            : `${id === null ? 'no matching element' : 'low confidence'} (${cands.length} candidates)${cPart} — top: ${topGuesses(probabilities, cands)} — candidates: ${file}`;
         results[origIndex] = { locator: null, detail, tokens, usedJev, confidence };
         return;
       }
@@ -224,6 +234,37 @@ async function judgeSnapshot(ctx: StepContext, snap: Snapshot, claims: string[])
       console.error(`plainwright: state too long for the model, aria cut to ${half.length} chars — scope the expect with \`within\` for precision`);
     }
   }
+}
+
+// `check`/`uncheck` mean "make it (un)selected", whatever keeps the state: a form control's `checked`
+// (following a label to its control), or aria-checked/aria-pressed on a toggle button. Playwright's own
+// check() refuses toggle buttons and times out on a label whose checkbox has no size (trivago's filter
+// chips), so the state is read here and the element is clicked only when it has to change.
+async function setChecked(loc: Locator, on: boolean): Promise<string> {
+  const read = () =>
+    loc.evaluate((el) => {
+      const control = el instanceof HTMLLabelElement ? el.control : el;
+      if (control instanceof HTMLInputElement) return control.checked;
+      const aria = el.getAttribute('aria-checked') ?? el.getAttribute('aria-pressed');
+      return aria === null ? null : aria === 'true';
+    });
+  const before = await read();
+  if (before === null) {
+    // No readable state: let Playwright decide whether this is a checkbox at all.
+    await (on ? loc.check() : loc.uncheck());
+    return `now ${on ? 'checked' : 'unchecked'}`;
+  }
+  if (before === on) return `already ${on ? 'checked' : 'unchecked'}`;
+  await loc.click();
+  const after = await read().catch(() => null); // a re-render may have replaced the element: not a failure
+  if (after !== null && after !== on) throw new Error(`clicked, but the element is still ${after ? 'checked' : 'unchecked'}`);
+  return `now ${on ? 'checked' : 'unchecked'}`;
+}
+
+// `scroll: bottom`, `top`, and the ways an agent writes them ("the bottom of the page", "page end").
+function scrollEdge(target: string): 'top' | 'bottom' | null {
+  const m = /^(?:the )?(?:page )?(top|bottom|end)(?: of the page)?$/i.exec(target.trim());
+  return m ? (m[1].toLowerCase() === 'top' ? 'top' : 'bottom') : null;
 }
 
 async function runDrag(ctx: StepContext, step: Extract<Step, { kind: typeof StepKind.drag }>, stepLabel: string): Promise<StepResult> {
@@ -362,20 +403,30 @@ export async function runStep(ctx: StepContext, step: Step): Promise<StepResult>
         }
       });
     case StepKind.check:
-    case StepKind.uncheck: {
-      const doCheck = step.kind === StepKind.check;
-      return withResolved(ctx, StepKind.check, step.target, stepLabel, (loc) => (doCheck ? loc.check() : loc.uncheck()));
-    }
+    case StepKind.uncheck:
+      return withResolved(ctx, StepKind.check, step.target, stepLabel, (loc) => setChecked(loc, step.kind === StepKind.check));
     case StepKind.upload:
       return withResolved(ctx, StepKind.upload, step.target, stepLabel, (loc) => {
         const paths = step.files.map((f) => path.resolve(ctx.spec.dir, f));
         return loc.setInputFiles(paths);
       });
     case StepKind.scroll: {
-      if (step.target === 'top' || step.target === 'bottom') {
-        await ctx.page.evaluate((pos) => window.scrollTo(0, pos === 'top' ? 0 : document.body.scrollHeight), step.target);
+      const edge = scrollEdge(step.target);
+      if (edge) {
+        // document.scrollingElement, not body: body.scrollHeight is short of the document on many sites.
+        // `instant` so the position read back is final even under `scroll-behavior: smooth`.
+        const [from, to] = await ctx.page.evaluate((edge) => {
+          const el = document.scrollingElement ?? document.documentElement;
+          const from = el.scrollTop;
+          el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'instant' });
+          return [Math.round(from), Math.round(el.scrollTop)];
+        }, edge);
         await settle(ctx.page).catch(() => {});
-        return { step: stepLabel, status: 'pass' };
+        const detail =
+          from === to
+            ? `did not move (${to}px): already at the ${edge}, or the page scrolls inside an element — scroll that element instead`
+            : `scrolled ${from} → ${to}px`;
+        return { step: stepLabel, status: 'pass', detail };
       }
       return withResolved(ctx, StepKind.click, step.target, stepLabel, async (loc) => {
         await loc.scrollIntoViewIfNeeded();

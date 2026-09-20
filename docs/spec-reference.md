@@ -52,9 +52,9 @@ the selector directly.
 | `press` | `press: Enter` | A Playwright key name, sent to the focused element. |
 | `hover` | `hover: <target>` | Candidates also include `img`, `svg` and `figure`. |
 | `select` | `select: { target, value }` | Native `<select>`. Tries the option's label, then its value. |
-| `check`, `uncheck` | `check: <target>` | Checkboxes, radios, `[role=checkbox|radio|switch]`. |
+| `check`, `uncheck` | `check: <target>` | Makes the target selected, or not. Checkboxes and radios (through their label when the input has no size), `role=checkbox|radio|switch|menuitemcheckbox`, and toggle buttons with `aria-pressed`. The state is read first: a no-op when already right, an error when the click did not change it. A chip with no state is a `click`. |
 | `upload` | `upload: { target, files: [...] }` | An `input[type=file]`. Paths resolve relative to the spec file. |
-| `scroll` | `scroll: <target>`, `top` or `bottom` | `top` and `bottom` scroll the window. Anything else scrolls that element into view. |
+| `scroll` | `scroll: <target>`, `top` or `bottom` | `top` and `bottom` (also written `the bottom of the page`) scroll the document and report the distance in `detail`. `did not move` means the content scrolls inside an element: scroll that element instead. Anything else scrolls that element into view. |
 | `drag` | `drag: { source, target }` | Both resolved like `click` targets in one Jev request, then dragged with a manual hover, mouse down, hover, mouse up sequence so native HTML5 drag-and-drop works. |
 | `mouse` | `mouse: { x, y }` | Moves the mouse to a page position. `y` may be negative, for example to trigger an exit-intent handler above the viewport. |
 

@@ -170,10 +170,13 @@ async function ask(state: unknown, questions: Question[]): Promise<{ tokens: num
   };
 }
 
-// Hard ceiling: a Jev Choice question accepts at most 255 options, one of which is `none`. Selector-matched
-// elements are listed first, cursor:pointer extras last, so a dense page loses extras, not real controls.
-// ponytail: no pagination — if the real controls alone exceed this, target the step with css= instead.
+// A Jev Choice question accepts at most 255 options, one of which is `none`. More candidates than this are
+// split into equal chunks, one request each, in parallel (see pickElements).
 export const MAX_PICK_CANDIDATES = 254;
+// Hard ceiling on what the page walker hands over: 4 parallel requests per pick. page.ts orders candidates
+// (dialog first, nav/footer last) so a page past this loses link farms, not controls.
+// ponytail: past this, target the step with css= or scope it with `within`.
+export const MAX_CANDIDATES = MAX_PICK_CANDIDATES * 4;
 
 export const PickResultSchema = z.object({
   id: z.number().nullable(),
@@ -188,11 +191,7 @@ export type PickResult = z.infer<typeof PickResultSchema>;
 // are deliberately sent twice (state.elements and criteria). Measured 2026-09-19 with them only in
 // criteria: pick tokens -40% on a 192-candidate page, but pick p -0.05 on average and up to -0.33;
 // for a test tool a wrong pick costs more than the tokens.
-export async function pickElements(
-  candidates: Candidate[],
-  instructions: string[],
-  page: { url: string; title: string }
-): Promise<PickResult[]> {
+async function pickChunk(candidates: Candidate[], instructions: string[], page: { url: string; title: string }): Promise<PickResult[]> {
   const criteria: Record<string, string> = { none: 'No listed element matches the instruction' };
   for (const c of candidates) criteria[String(c.id)] = c.desc;
 
@@ -217,6 +216,47 @@ export async function pickElements(
     const id = picked === 'none' ? null : Number(picked);
     const probability = probabilities?.[picked!] ?? 0;
     return { id, probability, confidence, probabilities: probabilities ?? {}, tokens: i === 0 ? tokens : 0 };
+  });
+}
+
+// Up to MAX_PICK_CANDIDATES: one request, as before. Past it: equal chunks, one request each, run in
+// parallel so a dense page costs one round trip (and one request's tokens per chunk), then merged.
+export async function pickElements(
+  candidates: Candidate[],
+  instructions: string[],
+  page: { url: string; title: string }
+): Promise<PickResult[]> {
+  if (candidates.length <= MAX_PICK_CANDIDATES) return pickChunk(candidates, instructions, page);
+  const chunkCount = Math.ceil(candidates.length / MAX_PICK_CANDIDATES);
+  const size = Math.ceil(candidates.length / chunkCount);
+  const chunks = Array.from({ length: chunkCount }, (_, i) => candidates.slice(i * size, (i + 1) * size));
+  return mergePicks(await Promise.all(chunks.map((chunk) => pickChunk(chunk, instructions, page))));
+}
+
+// Merges per-chunk answers into one PickResult per instruction. Candidate ids are page-global, so the
+// probability maps combine cleanly; `none` is taken from the chunk whose answer wins. When several chunks
+// are each sure of a different element, a single question would have split the probability between them
+// and stayed below the acceptance threshold — reproduce that split so decide() still says inconclusive
+// and the detail shows both guesses.
+export function mergePicks(perChunk: PickResult[][]): PickResult[] {
+  const score = (a: PickResult) => a.confidence ?? a.probability;
+  const tokens = perChunk.reduce((sum, results) => sum + results[0].tokens, 0);
+  return perChunk[0].map((_, i) => {
+    const answers = perChunk.map((results) => results[i]);
+    const found = answers.filter((a) => a.id !== null).sort((a, b) => score(b) - score(a));
+    // All `none`: the least sure chunk has the most telling top guesses for the detail line.
+    const best = found[0] ?? [...answers].sort((a, b) => score(a) - score(b))[0];
+    const probabilities: Record<string, number> = {};
+    for (const a of answers) for (const [k, p] of Object.entries(a.probabilities)) if (k !== 'none') probabilities[k] = p;
+    probabilities.none = best.probabilities.none ?? 0;
+    const split = Math.max(1, found.filter((a) => decide(score(a), 'pick') === 'pass').length);
+    return {
+      id: best.id,
+      probability: best.probability / split,
+      confidence: best.confidence === undefined ? undefined : best.confidence / split,
+      probabilities,
+      tokens: i === 0 ? tokens : 0,
+    };
   });
 }
 

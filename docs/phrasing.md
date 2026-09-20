@@ -12,12 +12,20 @@ Jev's confidence in the chosen option is at least 0.5 and the answer is not `non
 shows `p=` (probability) and, on the TypeSafe backend, `c=` (confidence). Otherwise the step is
 `inconclusive` and `detail` lists the top guesses with their probabilities.
 
-Candidates are the real controls first (buttons, links, inputs, options...), then extras: the outermost
-element with a `cursor: pointer` style (React-style clickable cards), `[tabindex]`, `[contenteditable]`,
-`summary`, `label`, `[draggable=true]`, `img`/`svg`/`figure` for `hover`, anything inside an open shadow
-root, and everything inside same-page iframes (prefixed `[iframe ...]`). Identical descriptions get
-`#1`, `#2`... in DOM order, so "the first ..." has one answer. Hard ceiling: 254 candidates, because a
-Jev Choice takes at most 255 options. Past that, scope with `within` or use `css=`.
+Candidates come in three layers: everything inside an open dialog first (a cookie banner blocks the
+rest of the page), then the page, then `nav` and `footer` (link farms). Within a layer the real controls
+come first (buttons, links, inputs, options...), then extras: the outermost element with a
+`cursor: pointer` style (React-style clickable cards), `[tabindex]`, `[contenteditable]`, `summary`,
+`label`, `[draggable=true]`, `img`/`svg`/`figure` for `hover`, anything inside an open shadow root, and
+everything inside same-page iframes (prefixed `[iframe ...]`). For `check`, a label whose checkbox has no
+size stands in for it, and `aria-pressed` toggles count. Identical descriptions get `#1`, `#2`... in
+list order, so "the first ..." has one answer.
+
+A Jev Choice takes at most 255 options, so up to 254 candidates go in one question. A denser page is
+split into equal chunks asked in parallel: one round trip, one request's tokens per chunk. When two
+chunks are each sure of a different element, the score is split between them as a single question
+would have done, and the step stays `inconclusive` with both guesses in `detail`. Hard ceiling: 1016
+candidates; past that the last layers are dropped. Scope with `within` or use `css=` on such a page.
 
 **Judging a claim** (`expect`, `wait`). One yes/no question per claim against the snapshot. It passes
 at p ≥ 0.9, fails at p ≤ 0.1, and is `inconclusive` in between. `wait` repeats the question every

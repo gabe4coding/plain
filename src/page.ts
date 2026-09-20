@@ -17,10 +17,18 @@ const CLICK_SELECTOR =
 const FILL_SELECTOR =
   'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea, [contenteditable=true]';
 const SELECT_SELECTOR = 'select';
-const CHECK_SELECTOR = 'input[type=checkbox], input[type=radio], [role=checkbox], [role=radio], [role=switch]';
+// Toggles that keep their state in aria-pressed/aria-checked (filter chips, menu check items) count too; the
+// `check` step reads that state before acting. Labels whose checkbox has no size are added by the walker.
+const CHECK_SELECTOR =
+  'input[type=checkbox], input[type=radio], [role=checkbox], [role=radio], [role=switch], [role=menuitemcheckbox], [role=menuitemradio], [aria-pressed]';
 const UPLOAD_SELECTOR = 'input[type=file]';
 const REGION_SELECTOR =
   'main, section, article, dialog, nav, header, footer, aside, form, table, [role=region], [role=dialog], [role=main], [role=tabpanel], [role=list]';
+
+// Layers decide what a dense page loses to the cap: an open dialog blocks everything else, so its controls
+// come first; nav and footer link farms (131 of trivago's first 254 candidates) come last.
+const DIALOG_SELECTOR = 'dialog, [role=dialog], [role=alertdialog], [aria-modal=true]';
+const CHROME_SELECTOR = 'nav, footer, [role=navigation], [role=contentinfo]';
 
 const SELECTORS: Record<CandidateKind, string> = {
   [StepKind.click]: CLICK_SELECTOR,
@@ -59,16 +67,21 @@ export function settle(page: Page, quietMs = 500, maxMs = 3000): Promise<void> {
  * Runs inside the page/frame. Walks the whole document — including open shadow roots — collecting
  * elements that match `selector`. For `includeExtras` (the `click` kind), also collects React-style
  * clickables that match no selector: cursor:pointer, [tabindex], [contenteditable], summary, label.
- * Selector-matched elements are ordered first (DOM order), extras after, then the list is capped.
+ * For `labelsOfToggles` (the `check` kind), a label whose checkbox/radio has no size stands in for it.
+ * Order before the cap: dialog content, then the page, then nav/footer; within a layer selector-matched
+ * elements first (DOM order), extras after.
  */
 function collectCandidatesInPage(args: {
   selector: string;
+  dialogSelector: string;
+  chromeSelector: string;
   includeExtras: boolean;
+  labelsOfToggles: boolean;
   skipVisibility: boolean;
   max: number;
   startId: number;
 }): string[] {
-  const { selector, includeExtras, skipVisibility, max, startId } = args;
+  const { selector, dialogSelector, chromeSelector, includeExtras, labelsOfToggles, skipVisibility, max, startId } = args;
 
   function visible(el: Element): boolean {
     const r = el.getBoundingClientRect();
@@ -122,25 +135,34 @@ function collectCandidatesInPage(args: {
   // boxes are plain <div draggable="true"> with `cursor: move`, not `pointer`, so isPointer() alone
   // would never surface them for a `drag` step.
   const EXTRA_SELECTOR = '[tabindex]:not([tabindex="-1"]), [contenteditable=true], summary, label, [draggable=true]';
-  const matched: Element[] = [];
-  const extras: Element[] = [];
+  // key = layer * 2 + (extra ? 1 : 0): dialog controls, dialog extras, page controls, page extras, nav/footer...
+  const found: { el: Element; key: number }[] = [];
 
   // `cursor` is inherited: only the outermost pointer element is the clickable (the card), not every
   // span/svg/path inside it — those would only bloat the list toward the 255-option ceiling.
   const isPointer = (el: Element) => window.getComputedStyle(el).cursor === 'pointer';
-  function visit(el: Element) {
+  // A styled checkbox is usually a 0x0 or offscreen input behind a label: the label is what a user clicks.
+  const isHiddenToggle = (c: HTMLElement | null) => c instanceof HTMLInputElement && (c.type === 'checkbox' || c.type === 'radio') && !visible(c);
+  function visit(el: Element, layer: number) {
     if (el.hasAttribute('data-jev-id')) el.removeAttribute('data-jev-id');
-    if (el.matches(selector)) matched.push(el);
+    if (el.matches(dialogSelector)) layer = 0;
+    else if (layer === 1 && el.matches(chromeSelector)) layer = 2;
+    if (el.matches(selector)) found.push({ el, key: layer * 2 });
+    else if (labelsOfToggles && el instanceof HTMLLabelElement && isHiddenToggle(el.control)) found.push({ el, key: layer * 2 });
     else if (includeExtras && !(el instanceof SVGElement) && (el.matches(EXTRA_SELECTOR) || (isPointer(el) && !(el.parentElement && isPointer(el.parentElement))))) {
-      extras.push(el);
+      found.push({ el, key: layer * 2 + 1 });
     }
-    if (el.shadowRoot) for (const c of Array.from(el.shadowRoot.children)) visit(c);
-    for (const c of Array.from(el.children)) visit(c);
+    if (el.shadowRoot) for (const c of Array.from(el.shadowRoot.children)) visit(c, layer);
+    for (const c of Array.from(el.children)) visit(c, layer);
   }
-  if (document.body) for (const c of Array.from(document.body.children)) visit(c);
+  if (document.body) for (const c of Array.from(document.body.children)) visit(c, 1);
 
   const keep = (el: Element) => (skipVisibility || visible(el)) && enabled(el);
-  const final = [...matched.filter(keep), ...extras.filter(keep)].slice(0, max);
+  const final = found
+    .filter((f) => keep(f.el))
+    .sort((a, b) => a.key - b.key) // stable: DOM order within a key
+    .map((f) => f.el)
+    .slice(0, max);
   const descs = final.map((el, i) => {
     el.setAttribute('data-jev-id', String(startId + i));
     return describe(el);
@@ -171,6 +193,7 @@ function frameLabel(frame: Frame): string {
 export async function candidates(page: Page, kind: CandidateKind, max: number): Promise<Candidate[]> {
   const selector = SELECTORS[kind];
   const includeExtras = kind === StepKind.click || kind === StepKind.hover;
+  const labelsOfToggles = kind === StepKind.check;
   const skipVisibility = kind === StepKind.upload;
   const out: Candidate[] = [];
   const frames = page.frames();
@@ -182,7 +205,10 @@ export async function candidates(page: Page, kind: CandidateKind, max: number): 
     try {
       descs = await frame.evaluate(collectCandidatesInPage, {
         selector,
+        dialogSelector: DIALOG_SELECTOR,
+        chromeSelector: CHROME_SELECTOR,
         includeExtras,
+        labelsOfToggles,
         skipVisibility,
         max: max - out.length,
         startId,

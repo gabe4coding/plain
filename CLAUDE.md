@@ -53,10 +53,13 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   time. `interpolate()` replaces `${env.*}`/`${hooks.*}` in any string; any other namespace, or an unresolved
   leaf, is an error.
 - `src/page.ts` — candidate collection (`candidates()`, selector + shadow-DOM walk per step kind, with
-  cursor-pointer/tabindex extras for `click`/`hover`), the accessibility snapshot (`snapshot()`/`snapshotRegion()`,
-  60k-char cap), and DOM-quiet waiting (`settle()`).
+  cursor-pointer/tabindex extras for `click`/`hover`; for `check` also `aria-pressed` toggles and labels of
+  sizeless checkboxes). Candidates are ordered in layers before the cap: dialog content, then the page, then
+  nav/footer, so a cookie banner appended at the end of the body is never cut. Also the accessibility snapshot
+  (`snapshot()`/`snapshotRegion()`, 60k-char cap) and DOM-quiet waiting (`settle()`).
 - `src/jev.ts` — provider selection and the `ask()` call to either backend; `pickElements()` (one Choice per
-  target, ≤254 candidates); `judge()` (one Noul per claim); `decide()`: a claim passes at p ≥ 0.9, fails at
+  target; ≤254 candidates per request, more are split into equal chunks asked in parallel and merged by
+  `mergePicks()`, which splits the score when two chunks disagree; ceiling `MAX_CANDIDATES` = 1016); `judge()` (one Noul per claim); `decide()`: a claim passes at p ≥ 0.9, fails at
   p ≤ 0.1, else `inconclusive`; a pick is accepted when (`confidence` if TypeSafe returned one, else
   `probability`) ≥ 0.5 and the answer isn't `none`. A rejected pick or non-passing claim dumps the exact state
   to `$TMPDIR/plainwright/*.json` (`dumpDebug` in `src/steps.ts`). The model is pinned (`MODEL_BY_PROVIDER`), not `jev-latest`:
@@ -67,7 +70,9 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   `select`, `check`, `uncheck`, `upload`, `scroll`, `wait`, `press`, `drag`, `mouse`, `expect`), each accepting
   `optional: true`. An action step is settle → snapshot candidates → Jev picks → Playwright acts; `expect`/`wait`
   are settle → snapshot → Jev judges. Several `expect` claims share one Jev call; fail beats inconclusive beats
-  pass across them.
+  pass across them. `check`/`uncheck` read the state (a control's `checked`, following a label, or
+  aria-checked/aria-pressed) and click only when it must change (`setChecked`); `scroll: top|bottom` (and spoken
+  forms, `scrollEdge`) scrolls `document.scrollingElement` and reports the distance.
 - `src/runner.ts` — `runSpec()`: import the hooks module first (fails fast, before the browser opens) → open a
   session → `setup()` → interpolate `url`/`steps` with `{env, hooks: data}` → run steps → `teardown()` in
   `finally` → close. `Status` is `pass | fail | inconclusive | error | skipped`. A setup error yields a single
@@ -77,7 +82,8 @@ natural-language claim holds (Noul) against the page's accessibility tree. Specs
   `setup({spec, page})` (its return becomes `${hooks.*}`) and `teardown({spec, page, data, result})`. Dataset
   shape is not imposed. See `examples/login-dataset.yaml` + `examples/hooks/login-dataset.mjs`.
 - `src/mcp.ts` — MCP server over stdio with one persistent browser session; tools `open`, `step`, `find`,
-  `snapshot`, `save`. `save` writes a YAML spec with `${hooks.*}` placeholders kept and `hooks:` relative to the
+  `snapshot` (whole page or `within` a region), `evaluate` (a JS expression's JSON value), `save`. `snapshot` and
+  `evaluate` read without acting and are not recorded. `save` writes a YAML spec with `${hooks.*}` placeholders kept and `hooks:` relative to the
   saved file. `${env.*}` is not available in an MCP session, only `${hooks.*}`. stdout is the JSON-RPC channel,
   so all logging (here and in `src/cli.ts`/`src/steps.ts`) goes to `console.error`.
 - `src/cli.ts` — entry point: loads `.env`, then dispatches to `mcp` or to running each spec file in order.

@@ -110,8 +110,8 @@ a role and its visible text.
 
 ## Let an agent drive the browser
 
-`plainwright mcp` serves the engine as an MCP server with one persistent browser session and five tools:
-`open`, `step`, `find`, `snapshot`, `save`. The agent never reads the accessibility tree; it sends one
+`plainwright mcp` serves the engine as an MCP server with one persistent browser session and six tools:
+`open`, `step`, `find`, `snapshot`, `evaluate`, `save`. The agent never reads the accessibility tree; it sends one
 sentence and gets one line back, then saves the flow as a spec.
 
 Install as a plugin (the plugin also ships a skill that teaches the agent the phrasing rules):

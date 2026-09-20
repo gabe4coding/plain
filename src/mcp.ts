@@ -9,7 +9,7 @@ import type { Spec } from './spec.js';
 import { parseStep, interpolate } from './spec.js';
 import { openSession, loadHooks, runSetup, type Session, type HooksModule, type RunOptions } from './runner.js';
 import { runStep, label, resolveLocators, type StepResult } from './steps.js';
-import { snapshot, CandidateKindSchema } from './page.js';
+import { snapshot, snapshotRegion, CandidateKindSchema } from './page.js';
 
 // Leaf paths of `data` as `${hooks.a.b}` placeholders for the `open` response — never the values
 // themselves, since leased data can be credentials. Arrays and non-object leaves are leaves.
@@ -33,10 +33,10 @@ Vocabulary, one example each:
 {dblclick: "the file icon"}
 {rightclick: "the context menu target"}
 {select: {target: "the country dropdown", value: "France"}}
-{check: "the remember-me checkbox"}
+{check: "the remember-me checkbox"}  (also filter chips and toggle buttons that expose their state; a no-op if already selected)
 {uncheck: "the newsletter checkbox"}
 {upload: {target: "the file input", files: ["/path/to/file.png"]}}
-{scroll: "the footer"}
+{scroll: "the footer"}  or  {scroll: bottom} / {scroll: top}  (the detail reports how far the page moved)
 {wait: "the results list is visible"}
 {press: "Enter"}
 {drag: {source: "the first row's handle", target: "the third row"}}
@@ -176,14 +176,45 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
   server.registerTool(
     'snapshot',
     {
-      description: 'Accessibility tree of the current page (url, title, aria). Costly for your context; use only when a step came back inconclusive and rephrasing did not help.',
-      inputSchema: { maxChars: z.number().optional() },
+      description:
+        'Accessibility tree of the current page (url, title, aria), or of one region of it when `within` names one ' +
+        '("the results list", "the hotel table", or css=...). Reading data: prefer `within` so you get the table or list ' +
+        'and not the whole page, or `evaluate` when you want clean JSON. Debugging: only when a step came back ' +
+        'inconclusive and rephrasing did not help.',
+      inputSchema: { maxChars: z.number().optional(), within: z.string().optional() },
     },
-    async ({ maxChars }) => {
+    async ({ maxChars, within }) => {
       if (!session) throw new Error('call open first');
       const max = maxChars ?? 20000;
-      const snap = await snapshot(session.ctx.page);
-      return ok({ url: snap.url, title: snap.title, aria: snap.aria.slice(0, max), truncated: snap.truncated });
+      let region: string | undefined;
+      let snap;
+      if (within) {
+        const before = totalTokens;
+        const [r] = await resolveLocators(session.ctx.page, 'region', [interpolate(within, { env: {}, hooks: data }, 'mcp')]);
+        if (r.usedJev) track(r.tokens);
+        if (!r.locator) return ok({ found: false, detail: r.detail, jevTokens: totalTokens - before });
+        region = r.detail;
+        snap = await snapshotRegion(session.ctx.page, r.locator);
+      } else {
+        snap = await snapshot(session.ctx.page);
+      }
+      return ok({ url: snap.url, title: snap.title, region, aria: snap.aria.slice(0, max), truncated: snap.truncated || snap.aria.length > max });
+    }
+  );
+
+  server.registerTool(
+    'evaluate',
+    {
+      description:
+        'Run a JavaScript expression in the page and return its JSON value: the raw escape hatch for pulling data ' +
+        'once the flow got there, e.g. `[...document.querySelectorAll("article")].map(a => ({ name: a.querySelector("h3")?.innerText, price: a.querySelector("[data-testid=price]")?.innerText }))`. ' +
+        'The expression may be async (a promise is awaited). Read-only by convention: it is not a step, so `save` does not record it.',
+      inputSchema: { js: z.string() },
+    },
+    async ({ js }) => {
+      if (!session) throw new Error('call open first');
+      const value: unknown = await session.ctx.page.evaluate(js);
+      return ok({ value: value === undefined ? null : value, url: session.ctx.page.url() });
     }
   );
 

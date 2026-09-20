@@ -78,3 +78,48 @@ test('isTooLong: a 400 with the same body is not too long — status decides, no
 test('isTooLong: a plain Error naming the gateway wording is too long', () => {
   assert.equal(isTooLong(new Error('max_tokens_exceeded')), true);
 });
+
+import { mergePicks, type PickResult } from './jev.js';
+
+const pick = (id: number | null, p: number, probabilities: Record<string, number>, tokens = 0): PickResult => ({
+  id,
+  probability: p,
+  confidence: p,
+  probabilities,
+  tokens,
+});
+
+test('mergePicks: the element found in a later chunk wins; tokens add up; maps merge with the winner\'s none', () => {
+  const [r] = mergePicks([
+    [pick(null, 0.98, { none: 0.98, '3': 0.02 }, 1000)],
+    [pick(467, 0.95, { '467': 0.95, none: 0.05 }, 1200)],
+  ]);
+  assert.equal(r.id, 467);
+  assert.equal(r.probability, 0.95);
+  assert.equal(r.tokens, 2200);
+  assert.deepEqual(r.probabilities, { '3': 0.02, '467': 0.95, none: 0.05 });
+});
+
+test('mergePicks: all none stays none, and shows the least sure chunk\'s guesses', () => {
+  const [r] = mergePicks([[pick(null, 0.99, { none: 0.99, '1': 0.01 })], [pick(null, 0.6, { none: 0.6, '300': 0.4 })]]);
+  assert.equal(r.id, null);
+  assert.equal(r.probabilities.none, 0.6);
+  assert.equal(r.probabilities['300'], 0.4);
+});
+
+test('mergePicks: two chunks each sure of a different element split the score below acceptance', () => {
+  const [r] = mergePicks([[pick(7, 0.9, { '7': 0.9, none: 0.1 })], [pick(400, 0.8, { '400': 0.8, none: 0.2 })]]);
+  assert.equal(r.id, 7);
+  assert.equal(r.confidence, 0.45);
+  assert.equal(decide(r.confidence!, 'pick'), 'inconclusive');
+  assert.equal(r.probabilities['400'], 0.8); // both guesses stay visible in the detail
+});
+
+test('mergePicks: several instructions merge independently, only the first carries tokens', () => {
+  const rs = mergePicks([
+    [pick(1, 0.9, { '1': 0.9, none: 0.1 }, 500), pick(null, 0.9, { none: 0.9 })],
+    [pick(null, 0.9, { none: 0.9 }, 500), pick(300, 0.7, { '300': 0.7, none: 0.3 })],
+  ]);
+  assert.deepEqual(rs.map((r) => r.id), [1, 300]);
+  assert.deepEqual(rs.map((r) => r.tokens), [1000, 0]);
+});

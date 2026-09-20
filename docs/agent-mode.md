@@ -3,7 +3,8 @@
 `plainwright mcp` serves the engine as an [MCP](https://modelcontextprotocol.io) server over stdio with
 one persistent browser session. An agent explores a flow one sentence at a time, then saves it as a
 spec that the batch runner replays. Jev still makes every pick and every judgment, so the agent never
-reads the accessibility tree (5 to 20k tokens per page): one sentence in, one line out.
+reads the accessibility tree (5 to 20k tokens per page) unless it asks for a piece of it: one sentence
+in, one line out.
 
 ```sh
 node bin/plainwright.mjs [--headless] [--timeout <ms>] mcp
@@ -16,11 +17,25 @@ node bin/plainwright.mjs [--headless] [--timeout <ms>] mcp
 | `open` | `url`, optional `hooks`, optional `headed` | Starts the browser (first call) or navigates. `headed: true` shows the window, `false` hides it; the default is the server's `--headless` flag, and changing it later relaunches the browser (session cookies are lost; ignored with `--cdp`). `hooks` is a setup/teardown module path, relative to the server's working directory. Setup runs before the navigation and its result is available as `${hooks.*}`, listed by path (never by value) in the response. Teardown runs when the session ends, or right away when `open` is called again with a new `hooks`. |
 | `step` | `step` | Runs one YAML-shaped step: `{click: "the Login button"}`, `{fill: {target, value}}`, `{expect: [...]}`, any kind from the [spec reference](spec-reference.md). Returns `status`, `detail`, `notes`, `url` and `jevTokens`. |
 | `find` | `kind`, `target` | Dry run of a pick: what Jev would choose, without acting. `kind` is `click`, `hover`, `fill`, `select`, `check`, `upload` or `region`. |
-| `snapshot` | optional `maxChars` | The accessibility tree. An escape hatch for when rephrasing does not help. |
+| `snapshot` | optional `within`, optional `maxChars` | The accessibility tree of the page, or of one region when `within` names it (`the results list`, `css=main`). Reading data: use `within`. Debugging: the escape hatch when rephrasing does not help. |
+| `evaluate` | `js` | Runs a JavaScript expression in the page and returns its JSON value. The raw way to pull data once the flow got there. |
 | `save` | `path`, optional `name` | Writes everything run so far as a spec. Only steps that passed are kept. `${hooks.*}` placeholders stay as written and `hooks:` is written relative to the saved file. |
 
 A rejected pick comes back `inconclusive` with the top guesses in `detail`, so the agent rephrases and
 retries. `${env.*}` is not available in a session, only `${hooks.*}`.
+
+## Reading data
+
+Steps act; two tools read. `snapshot` with `within` returns the accessibility tree of one region, so a
+results table arrives as rows and cells instead of the whole page. `evaluate` runs a JavaScript
+expression in the page and returns its value as JSON, for when the data should arrive already shaped:
+
+```
+evaluate { js: '[...document.querySelectorAll("article")].map(a => a.querySelector("h3").innerText)' }
+```
+
+Neither is a step: `save` does not record them and a spec has no equivalent. They are for the agent's own
+reading, after plainwright's steps got the page there.
 
 The plugin's skill, `skills/authoring-plainwright-specs/SKILL.md`, teaches the agent the workflow and the
 [phrasing rules](phrasing.md).
