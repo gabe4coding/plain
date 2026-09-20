@@ -25,7 +25,7 @@ one sentence at a time and save the session as a replayable spec.
 Requirements: Node 22+, a [TypeSafe](https://typesafe.ai) API key.
 
 ```sh
-git clone <this repo> plainwright && cd plainwright
+git clone https://github.com/gabe4coding/plainwright.git && cd plainwright
 mkdir -p ~/.config/plainwright && echo 'TYPESAFE_API_KEY=<your key>' > ~/.config/plainwright/.env
 node bin/plainwright.mjs examples/todo.yaml
 ```
@@ -102,11 +102,11 @@ Install as a plugin (the plugin also ships a skill that teaches the agent the ph
 
 ```sh
 # Claude Code
-/plugin marketplace add /path/to/plainwright
+/plugin marketplace add gabe4coding/plainwright
 /plugin install plainwright@plainwright-marketplace
 
 # Codex
-codex plugin marketplace add /path/to/plainwright
+codex plugin marketplace add gabe4coding/plainwright
 codex plugin add plainwright@plainwright-marketplace
 ```
 

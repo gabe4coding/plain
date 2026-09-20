@@ -38,11 +38,11 @@ tool error, where the agent can read it.
 ## Claude Code
 
 ```
-/plugin marketplace add /path/to/plainwright
+/plugin marketplace add gabe4coding/plainwright
 /plugin install plainwright@plainwright-marketplace
 ```
 
-A git URL works the same once the repo has a remote. The plugin ships the MCP server (root
+A local clone path works in place of `gabe4coding/plainwright`. The plugin ships the MCP server (root
 `.mcp.json`), the skill and the built CLI. On first start it installs its own npm dependencies and
 Chromium, with progress on stderr. That first connection can take a minute or two; if it times out,
 `/mcp` reconnects once the install is done.
@@ -71,7 +71,7 @@ root `plugin.json`, `mcp.json` and `.agents/plugins/marketplace.json`. Skills ar
 `skills/`. `AGENTS.md` is a symlink to `CLAUDE.md`, so Codex reads the same repo guidance.
 
 ```sh
-codex plugin marketplace add /path/to/plainwright     # or <owner>/<repo> once the repo has a remote
+codex plugin marketplace add gabe4coding/plainwright   # or a local clone path
 codex plugin add plainwright@plainwright-marketplace
 ```
 
