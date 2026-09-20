@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSpec } from './spec.js';
 import { runSpec } from './runner.js';
+import { chromium } from 'playwright';
 
 const OPTS = { headed: false, timeout: 5000 };
 
@@ -153,4 +154,34 @@ steps:
   assert.equal(result.status, 'error');
   assert.deepEqual(result.steps, [{ step: 'setup', status: 'error', detail: 'setup boom' }]);
   assert.equal(existsSync(join(dir, 'events.json')), false);
+});
+
+const HI_SPEC = 'name: hi\nurl: "data:text/html,<h1>hi</h1>"\nsteps:\n  - goto: "data:text/html,<h1>hi</h1>"\n';
+
+test('--profile: the persistent profile dir is created and the run passes', async () => {
+  const dir = tempDir();
+  const profile = join(dir, 'profile');
+  const result = await runSpec(loadSpec(writeSpec(dir, HI_SPEC)), { ...OPTS, profile });
+  assert.equal(result.status, 'pass');
+  assert.ok(existsSync(join(profile, 'Default')), 'Chromium wrote a profile into the dir');
+});
+
+test('--cdp: attaches to a running browser, works in its own tab, leaves the browser running', async () => {
+  const port = 9300 + Math.floor(Math.random() * 500);
+  const running = await chromium.launch({ args: [`--remote-debugging-port=${port}`] });
+  try {
+    const dir = tempDir();
+    const result = await runSpec(loadSpec(writeSpec(dir, HI_SPEC)), { ...OPTS, cdp: `http://127.0.0.1:${port}` });
+    assert.equal(result.status, 'pass');
+    assert.ok(running.isConnected(), 'the attached-to browser is still alive after close()');
+    assert.equal(running.contexts().flatMap((c) => c.pages()).length, 0, 'the tab we opened was closed');
+  } finally {
+    await running.close();
+  }
+});
+
+test('--cdp rejects a spec with auth (cannot be applied to an existing context)', async () => {
+  const dir = tempDir();
+  const spec = loadSpec(writeSpec(dir, 'name: a\nurl: "data:text/html,<h1>hi</h1>"\nauth: { user: u, pass: p }\nsteps:\n  - goto: "data:text/html,<h1>hi</h1>"\n'));
+  await assert.rejects(runSpec(spec, { ...OPTS, cdp: 'http://127.0.0.1:1' }), /--cdp attaches/);
 });

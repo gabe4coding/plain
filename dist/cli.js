@@ -17,14 +17,23 @@ const { values, positionals } = parseArgs({
     options: {
         headless: { type: 'boolean', default: false },
         timeout: { type: 'string', default: '15000' },
+        profile: { type: 'string' },
+        cdp: { type: 'string' },
     },
     allowPositionals: true,
 });
 if (positionals.length === 0) {
-    console.error('usage: plainwright [--headless] [--timeout <ms>] <spec.yaml> [more.yaml ...] | mcp');
+    console.error('usage: plainwright [--headless] [--timeout <ms>] [--profile <dir>] [--cdp <url>] <spec.yaml> [more.yaml ...] | mcp');
     process.exit(2);
 }
-const opts = { headed: !values.headless, timeout: Number(values.timeout) };
+const opts = {
+    headed: !values.headless,
+    timeout: Number(values.timeout),
+    // ponytail: env fallbacks so a plugin install, whose arguments are fixed, can still be pointed at a
+    // profile or a running Chrome from ~/.config/plainwright/.env
+    profile: values.profile ?? process.env.PLAINWRIGHT_PROFILE,
+    cdp: values.cdp ?? process.env.PLAINWRIGHT_CDP,
+};
 try {
     const p = provider();
     console.error(`plainwright: Jev via ${p} (${MODEL_BY_PROVIDER[p]})`);

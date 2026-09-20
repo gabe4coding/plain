@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Spec } from './spec.js';
 import { parseStep, interpolate } from './spec.js';
-import { openSession, loadHooks, runSetup, type Session, type HooksModule } from './runner.js';
+import { openSession, loadHooks, runSetup, type Session, type HooksModule, type RunOptions } from './runner.js';
 import { runStep, label, resolveLocators, type StepResult } from './steps.js';
 import { snapshot } from './page.js';
 
@@ -55,7 +55,7 @@ When \`open\` was called with \`hooks\`, any string in a step may contain \`\${h
 kept as written when \`save\` writes the spec, so the saved spec stays dataset-driven. \${env.*} is
 not available in this session — add it to the YAML yourself after saving.`;
 
-export async function serveMcp(opts: { headed: boolean; timeout: number }): Promise<void> {
+export async function serveMcp(opts: RunOptions): Promise<void> {
   let session: Session | null = null;
   const spec: Spec = { name: 'plainwright session', url: '', dir: process.cwd(), dialogs: 'accept', steps: [] };
   const transcript: Record<string, unknown>[] = [];

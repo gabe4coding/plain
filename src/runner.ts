@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { chromium, type Page } from 'playwright';
+import { chromium, type BrowserContextOptions, type Page } from 'playwright';
 import { interpolate, type Spec } from './spec.js';
 import { runStep, label, type StepContext, type StepResult, type Status } from './steps.js';
 
@@ -51,24 +51,56 @@ export interface Session {
 // Launches the browser/context/page for one spec and wires up the listeners every step relies on
 // (dialogs, popups, downloads, console/page errors). Shared by the batch runner below and by the
 // MCP server, which keeps one Session alive across many tool calls instead of one spec.
-export async function openSession(
-  spec: Spec,
-  opts: { headed: boolean; timeout: number },
-  track: (tokens: number) => void
-): Promise<Session> {
-  const browser = await chromium.launch({ headless: !opts.headed });
+export interface RunOptions {
+  headed: boolean;
+  timeout: number;
+  /** Persistent user-data dir: cookies and logins survive between runs. Ignored when `cdp` is set. */
+  profile?: string;
+  /** Attach to a running Chrome over CDP (e.g. http://127.0.0.1:9222) instead of launching one. */
+  cdp?: string;
+}
 
-  const contextOptions: Parameters<typeof browser.newContext>[0] = {};
+// Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
+// launch a throwaway browser (the default). Returns the page plus how to release it: attaching must
+// disconnect (never close the user's Chrome) and only close the tab it opened.
+async function openPage(spec: Spec, opts: RunOptions): Promise<{ page: Page; close: () => Promise<void> }> {
+  const contextOptions: BrowserContextOptions = {};
   if (spec.auth) contextOptions.httpCredentials = { username: spec.auth.user, password: spec.auth.pass };
   if (spec.geolocation) {
     contextOptions.geolocation = { latitude: spec.geolocation.lat, longitude: spec.geolocation.lon };
     contextOptions.permissions = ['geolocation'];
   }
+
+  if (opts.cdp) {
+    if (spec.auth || spec.geolocation) {
+      throw new Error('--cdp attaches to an existing browser context: `auth` and `geolocation` in the spec are not supported there');
+    }
+    const browser = await chromium.connectOverCDP(opts.cdp);
+    const context = browser.contexts()[0] ?? (await browser.newContext());
+    const tab = await context.newPage(); // our own tab, so the user's current one is left alone
+    return {
+      page: tab,
+      close: async () => {
+        await tab.close().catch(() => {});
+        await browser.close(); // on a connected browser this only disconnects
+      },
+    };
+  }
+  if (opts.profile) {
+    const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, ...contextOptions });
+    return { page: context.pages()[0] ?? (await context.newPage()), close: () => context.close() };
+  }
+  const browser = await chromium.launch({ headless: !opts.headed });
   const context = await browser.newContext(contextOptions);
+  return { page: await context.newPage(), close: () => browser.close() };
+}
+
+export async function openSession(spec: Spec, opts: RunOptions, track: (tokens: number) => void): Promise<Session> {
+  const opened = await openPage(spec, opts);
 
   // `page` is the *active* page — a popup can replace it mid-run (see the 'popup' handler below),
   // so every step below must read this variable rather than capturing the initial page.
-  let page = await context.newPage();
+  let page = opened.page;
   page.setDefaultTimeout(opts.timeout);
 
   const acceptDialogs = spec.dialogs !== 'dismiss';
@@ -121,11 +153,11 @@ export async function openSession(
       pendingNotes = [];
       return notes;
     },
-    close: () => browser.close(),
+    close: opened.close,
   };
 }
 
-export async function runSpec(spec: Spec, opts: { headed: boolean; timeout: number }): Promise<TestResult> {
+export async function runSpec(spec: Spec, opts: RunOptions): Promise<TestResult> {
   const steps: StepResult[] = [];
   let jevCalls = 0;
   let totalTokens = 0;

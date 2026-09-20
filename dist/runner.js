@@ -28,11 +28,10 @@ export async function runSetup(hooks, args) {
     return returned;
 }
 const MAX_EVENTS = 30; // ponytail: cap what's sent to Jev as `events` — a long spec shouldn't grow this unbounded
-// Launches the browser/context/page for one spec and wires up the listeners every step relies on
-// (dialogs, popups, downloads, console/page errors). Shared by the batch runner below and by the
-// MCP server, which keeps one Session alive across many tool calls instead of one spec.
-export async function openSession(spec, opts, track) {
-    const browser = await chromium.launch({ headless: !opts.headed });
+// Three ways to get a page: attach to the user's running browser, launch a persistent profile, or
+// launch a throwaway browser (the default). Returns the page plus how to release it: attaching must
+// disconnect (never close the user's Chrome) and only close the tab it opened.
+async function openPage(spec, opts) {
     const contextOptions = {};
     if (spec.auth)
         contextOptions.httpCredentials = { username: spec.auth.user, password: spec.auth.pass };
@@ -40,10 +39,34 @@ export async function openSession(spec, opts, track) {
         contextOptions.geolocation = { latitude: spec.geolocation.lat, longitude: spec.geolocation.lon };
         contextOptions.permissions = ['geolocation'];
     }
+    if (opts.cdp) {
+        if (spec.auth || spec.geolocation) {
+            throw new Error('--cdp attaches to an existing browser context: `auth` and `geolocation` in the spec are not supported there');
+        }
+        const browser = await chromium.connectOverCDP(opts.cdp);
+        const context = browser.contexts()[0] ?? (await browser.newContext());
+        const tab = await context.newPage(); // our own tab, so the user's current one is left alone
+        return {
+            page: tab,
+            close: async () => {
+                await tab.close().catch(() => { });
+                await browser.close(); // on a connected browser this only disconnects
+            },
+        };
+    }
+    if (opts.profile) {
+        const context = await chromium.launchPersistentContext(opts.profile, { headless: !opts.headed, ...contextOptions });
+        return { page: context.pages()[0] ?? (await context.newPage()), close: () => context.close() };
+    }
+    const browser = await chromium.launch({ headless: !opts.headed });
     const context = await browser.newContext(contextOptions);
+    return { page: await context.newPage(), close: () => browser.close() };
+}
+export async function openSession(spec, opts, track) {
+    const opened = await openPage(spec, opts);
     // `page` is the *active* page — a popup can replace it mid-run (see the 'popup' handler below),
     // so every step below must read this variable rather than capturing the initial page.
-    let page = await context.newPage();
+    let page = opened.page;
     page.setDefaultTimeout(opts.timeout);
     const acceptDialogs = spec.dialogs !== 'dismiss';
     let pendingNotes = [];
@@ -95,7 +118,7 @@ export async function openSession(spec, opts, track) {
             pendingNotes = [];
             return notes;
         },
-        close: () => browser.close(),
+        close: opened.close,
     };
 }
 export async function runSpec(spec, opts) {

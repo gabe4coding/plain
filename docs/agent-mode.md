@@ -25,6 +25,40 @@ retries. `${env.*}` is not available in a session, only `${hooks.*}`.
 The plugin's skill, `skills/authoring-plainwright-specs/SKILL.md`, teaches the agent the workflow and the
 [phrasing rules](phrasing.md).
 
+## Your real browser
+
+By default every session is a fresh Chromium with an empty profile: no cookies, no logins. Two flags
+change that. They work for the CLI and for `mcp`, and as `PLAINWRIGHT_PROFILE` / `PLAINWRIGHT_CDP` in
+`~/.config/plainwright/.env` for a plugin install, whose arguments you cannot change.
+
+**`--profile <dir>`: a browser that remembers.** Chromium is launched with a persistent user-data
+directory. Log in once, and the next session is still logged in. Use a directory plainwright owns,
+such as `~/.plainwright`. Copying your Google Chrome profile there does not carry your cookies over,
+since Chrome encrypts them per application.
+
+**`--cdp <url>`: the Chrome you are looking at.** plainwright attaches to a running Chrome over the
+DevTools protocol, opens its own tab there and drives it with your live sessions, extensions and
+saved passwords. Start Chrome with a debugging port first:
+
+```sh
+# macOS; on Linux the binary is google-chrome
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9222 --user-data-dir="$HOME/.plainwright-chrome"
+node bin/plainwright.mjs --cdp http://127.0.0.1:9222 mcp
+```
+
+Chrome 136 and later refuses remote debugging on your default profile directory, hence the separate
+`--user-data-dir`. That Chrome is a real Chrome with its own profile, so it starts signed out. Sign in
+to your Google account there and turn on sync to bring passwords and extensions over, then log in to
+the sites you need once. The profile dir keeps it all. Rules of the attached mode:
+
+- plainwright works in a tab it opens and closes that tab when the session ends. Disconnecting never
+  closes your Chrome.
+- `auth` and `geolocation` in a spec are rejected: they configure a new browser context, and the point
+  here is to reuse yours.
+- When both flags are given, `--cdp` wins. There is nothing to launch.
+- Anything the agent does happens in your real accounts. Read the [rules](../README.md#rules) again.
+
 ## The API key
 
 The server reads `TYPESAFE_API_KEY` (or `AI_GATEWAY_API_KEY`) from, in order: the process environment,

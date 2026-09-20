@@ -24,7 +24,9 @@ node dist/cli.js [--headless] [--timeout 15000] examples/login.yaml [more.yaml .
 node dist/cli.js --headless mcp
 ```
 
-`--headless` hides the browser (visible by default); `--timeout` is per-action (ms). `.mcp.json` runs the same
+`--headless` hides the browser (visible by default); `--timeout` is per-action (ms); `--profile <dir>` launches a
+persistent context; `--cdp <url>` attaches to a running Chrome (`openPage()` in `src/runner.ts` picks one of the three;
+env fallbacks `PLAINWRIGHT_PROFILE`/`PLAINWRIGHT_CDP` in `src/cli.ts`). `.mcp.json` runs the same
 entry via `${CLAUDE_PLUGIN_ROOT}/bin/plainwright.mjs --headless mcp`.
 
 Environment: `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` (`TYPESAFE_API_KEY` wins if both set), or force one with
