@@ -139,7 +139,7 @@ steps:
   - expect: "The preview contains the test message"
 ```
 
-Top-level keys are `name`, `app`, optional `env` and `hooks`, and a nonempty `steps` list.
+Top-level keys are `name`, `app`, optional `env`, `hooks`, and `goal`, and a nonempty `steps` list.
 Unknown top-level keys are rejected so browser settings cannot be silently ignored. Environment
 references and `${env.*}` / `${hooks.*}` interpolation are the browser engine's existing logic.
 Store credentials as `$VAR` references in `env`, or return them from hooks; never record literals.

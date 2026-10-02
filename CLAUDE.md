@@ -42,18 +42,25 @@ node scripts/benchmark-claims.mjs --runs 3           # expect judging on saved p
 `--headless` hides the browser (visible by default); `--timeout` is per-action (ms); `--profile <dir>` launches a
 persistent context; `--channel chrome` launches an installed browser instead of the bundled Chromium; `--cdp <url>` attaches
 to a running Chrome (`openPage()` in `src/runner.ts` picks one of the three; env fallbacks `PLAINWRIGHT_PROFILE`/
-`PLAINWRIGHT_CHANNEL`/`PLAINWRIGHT_CDP` in `src/cli.ts`). The browser plugin `.mcp.json` runs `${CLAUDE_PLUGIN_ROOT}/bin/launch.mjs --headless mcp`, which installs and dispatches to the shared runtime.
+`PLAINWRIGHT_CHANNEL`/`PLAINWRIGHT_CDP` are the `existingEnv` table in `parseSuiteArgs` in `src/options.ts`, with
+precedence CLI, then env, then config). The browser plugin `.mcp.json` runs `${CLAUDE_PLUGIN_ROOT}/bin/launch.mjs --headless mcp`, which installs and dispatches to the shared runtime.
 
 Environment: `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` (`TYPESAFE_API_KEY` wins if both set), or force one with
 `JEV_PROVIDER=typesafe|gateway` (`src/jev.ts`, `selectProvider`). `src/cli.ts` loads `.env` from the cwd, then
 `~/.config/plainwright/.env` (`USER_ENV_FILE` in `src/jev.ts`), via Node's native `process.loadEnvFile()` (no `dotenv`);
 variables already in the environment are never overridden. The user file exists because Codex passes plugin MCP
-servers no shell environment. Without a key the CLI exits at startup; MCP mode keeps serving and the first Jev
-call returns the message as a tool error.
+servers no shell environment. Without a key, `runSuite` asks for the provider only when at least one spec is
+selected and the CLI then exits 2; `validate`, `--list`, and an empty selection need no key, while MCP mode keeps
+serving and the first Jev call returns the message as a tool error.
 
-`dist/` is committed on purpose — this repo is also a Claude Code plugin and ships its built output
-(`bin/plainwright.mjs` runs `dist/cli.js` directly; on first run it also lazy-installs npm deps and Chromium).
+`dist/` is committed on purpose: `scripts/build-plugins.mjs` packs it into `plugins/*/runtime.tgz`; `action.yml`
+runs `dist/cli.js` after `npm ci --omit=dev`, with no build step; the `Dockerfile` copies it; and
+`.github/workflows/test.yml` checks that generated files are up to date.
 `dist/**/*.test.js` is gitignored. Rebuild before committing a `src/` change so `dist/` matches it.
+
+CI (`.github/workflows/test.yml`) greps `Dockerfile` and `docs/ci.md` for the
+`mcr.microsoft.com/playwright:v<locked version>-noble` tag. A Playwright bump therefore needs both tags edited,
+and the `dist/` and tgz files rebuilt.
 
 ## Architecture
 
