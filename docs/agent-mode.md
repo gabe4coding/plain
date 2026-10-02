@@ -177,7 +177,8 @@ Pitfalls:
 
 - To try the browser plugin from a clone without installing it, run
   `claude --plugin-dir /path/to/plainwright/plugins/plainwright`. The repository root holds the
-  shared npm package and marketplaces; plugin manifests live in the two `plugins/` directories.
+  shared npm package and marketplaces; plugin manifests live in `plugins/plainwright/`,
+  `plugins/plainwright-computer/`, and `plugins/plainwright-mobile/`.
 - A server registered by hand with `claude mcp add plainwright ...` silently replaces the plugin's server
   of the same name. Remove it.
 

@@ -43,7 +43,7 @@ jobs:
           # Or use AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
 ```
 
-The action installs its own locked runtime dependencies and Chromium, runs the specs with text and JUnit reporters, and uploads the artifacts directory if the run fails. Artifact names must be unique in a workflow run, so in a matrix give each job its own `artifact-name` (for example `plainwright-results-${{ matrix.site }}`). The `--reporter` and `--artifacts` flags become available after the reporting and artifacts lanes merge.
+The action installs its own locked runtime dependencies and Chromium, runs the specs with text and JUnit reporters, and uploads the artifacts directory if the run fails. Artifact names must be unique in a workflow run, so in a matrix give each job its own `artifact-name` (for example `plainwright-results-${{ matrix.site }}`).
 
 ## Docker
 
