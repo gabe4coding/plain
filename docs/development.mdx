@@ -120,9 +120,10 @@ agent. It grades each run:
 - The number of tool calls must stay in the budget of the task.
 - A spec that the agent saves must pass when the CLI runs it.
 
-Each agent runs isolated from your own setup, with the skill and the MCP server of the checkout. Codex still reads
-your own skills in `~/.agents/skills`. The evals cost Claude and Codex usage. CI does not run them. Use
-`--agent claude` or `--only login` to run fewer.
+Each agent runs isolated from your own setup, with the skill and the MCP server of the checkout. Codex gets an empty
+`HOME`, so it does not read your own skills in `~/.agents/skills`. The plain MCP server keeps your `HOME`, so it
+finds `~/.config/plain/.env` and the Playwright browsers. The evals cost Claude and Codex usage. CI does not run
+them. Use `--agent claude` or `--only login` to run fewer.
 
 If a run fails, the eval prints the folder with the transcripts of the failed runs. A task can fail now and then
 with no change in plain. To find out if your change is the cause, compare main and your branch:
