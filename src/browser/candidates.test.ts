@@ -174,3 +174,23 @@ test('a short cap keeps a trailing dialog and page controls, and drops extras, n
   assert.deepEqual(kept.map((c) => c.desc.split(' context:')[0]), ['button "Accept"', 'button "Save"']);
   assert.equal(await elementById(page, kept[0].id).innerText(), 'Accept');
 });
+
+test('hover adds images, svg and figure, and keeps the same extras as click', async () => {
+  // The tile is first in the DOM and the summary is last: extras follow selector matches, then stay in DOM order.
+  // draggable=false is not a target for either kind.
+  await page.goto(html(`<div draggable="true">Tile</div><div draggable="false">Still</div>
+    <button>Save</button>
+    <img alt="Avatar" width="20" height="20">
+    <svg width="20" height="20" role="img" aria-label="Mark"><rect width="20" height="20"></rect></svg>
+    <figure>Chart</figure>
+    <details><summary>Details</summary></details>`));
+  const names = async (kind: 'click' | 'hover') =>
+    (await candidates(page, kind, 20)).map((c) => c.desc.split(' context:')[0]);
+  assert.deepEqual(await names('click'), ['button "Save"', 'div "Tile"', 'summary "Details"']);
+  const hover = await candidates(page, 'hover', 20);
+  assert.deepEqual(hover.map((c) => c.desc.split(' context:')[0]), [
+    'button "Save"', 'img alt="Avatar"', 'svg[role=img] aria-label="Mark"', 'figure "Chart"',
+    'div "Tile"', 'summary "Details"',
+  ]);
+  assert.equal(await elementById(page, hover[1].id).getAttribute('alt'), 'Avatar');
+});
