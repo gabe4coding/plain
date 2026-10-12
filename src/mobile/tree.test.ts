@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findMobileNode, nodeIdentity, type MobileNode } from './tree.js';
+import { findMobileNode, nodeIdentity, parseIdentity, type MobileNode } from './tree.js';
 
 // Captured handles are rechecked with these two helpers before a native action
 // (AppiumAdapter.checkHandle). XML parsing and candidate filters live in adapter.test.ts.
@@ -32,6 +32,23 @@ test('nodeIdentity ignores value and checked state and keeps role, name, and nat
   assert.notEqual(nodeIdentity(node({ ...labeled, name: 'Phone' })), nodeIdentity(labeled));
   for (const key of ['resource-id', 'name', 'label', 'content-desc', 'text'] as const)
     assert.notEqual(nodeIdentity(node({ ...labeled, attrs: { ...labeled.attrs, [key]: 'other' } })), nodeIdentity(labeled), key);
+});
+
+test('parseIdentity reads the role, the displayed name, the name attribute and the label, and skips the resource id', () => {
+  // iOS rechecks a target from the lookup response (AppiumAdapter.resolveIos). The resource id sits between the
+  // displayed name and the name attribute, so a shift would compare the wrong fields.
+  const identity = nodeIdentity(node({
+    path: '/*[1]',
+    role: 'XCUIElementTypeButton',
+    name: 'Sign in',
+    attrs: { 'resource-id': 'rid', name: 'sign-in', label: 'Sign in button', 'content-desc': 'desc', text: 'typed' },
+  }));
+  assert.deepEqual(parseIdentity(identity), {
+    role: 'XCUIElementTypeButton', name: 'Sign in', nativeName: 'sign-in', label: 'Sign in button',
+  });
+  assert.deepEqual(parseIdentity(nodeIdentity(node({ path: '/*[1]', name: 'Say "hi"', attrs: { name: 'a"b' } }))), {
+    role: 'android.widget.Button', name: 'Say "hi"', nativeName: 'a"b', label: '',
+  });
 });
 
 test('findMobileNode returns the node at a path and does not treat /*[1] as a prefix of /*[10]', () => {
