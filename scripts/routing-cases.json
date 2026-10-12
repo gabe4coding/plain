@@ -81,5 +81,12 @@
       "gh pr checks",
       "--watch"
     ]
+  },
+  {
+    "id": "benchmark-local-site",
+    "question": "I changed step timing in src/browser/steps.ts and want to compare its speed against main with benchmark-steps.mjs. Which pages do I run it on?",
+    "expect": [
+      "--e2e|e2e/site\\.mjs"
+    ]
   }
 ]

@@ -55,6 +55,10 @@ compare it. For each one:
 3. Judge the delta. False passes and wrong locator hits must stay 0. Any metric that gets worse needs a reason in
    the report, or a fix.
 
+Compare only on local pages: saved pages and cases, or the `e2e/site.mjs` site (`scripts/benchmark-steps.mjs` with
+`--e2e`). A run on the public demo sites (`scripts/benchmark-mcp.mjs`, `scripts/benchmark-steps.mjs` without
+`--e2e`) is a smoke check, never a before/after number: ads, iframes and the network make its times vary.
+
 ## 5. Review the diff
 
 Review your own diff against main as a reviewer would. In Claude Code, run the `code-review` skill on the diff.
