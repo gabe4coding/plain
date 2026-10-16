@@ -38,8 +38,11 @@ export interface RunReport {
   specs: SpecReport[];
   totals: { jevCalls: number; tokens: number; passed: number; failed: number; flaky: number; skipped: number; replayed: number; healed: number };
   stopped?: StopReason;
-  status: 'pass' | 'fail';
+  status: RunStatus;
 }
+
+/** A run passes only when every spec passed. */
+export type RunStatus = Extract<Status, 'pass' | 'fail'>;
 
 /** The engine's session events, with the browser page typed for tracing, plus the suite's run and spec events. */
 export interface RunObserver extends SessionObserver<Page> {

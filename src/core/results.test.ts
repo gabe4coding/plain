@@ -1,8 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { label, topGuesses, dumpDebug } from './results.js';
+import { label, topGuesses, dumpDebug, overallStatus, type Status } from './results.js';
 import type { Step } from './spec.js';
+
+// Hooks teardown gets this status in agent mode, where steps go on after a failure.
+test('overallStatus is the first failure, and pass when no step failed', () => {
+  const of = (...statuses: Status[]) => overallStatus(statuses.map((status) => ({ status })));
+  assert.equal(of(), 'pass');
+  assert.equal(of('pass', 'skipped'), 'pass');
+  assert.equal(of('fail', 'pass'), 'fail');
+  assert.equal(of('pass', 'inconclusive', 'pass'), 'inconclusive');
+  assert.equal(of('skipped', 'error', 'fail', 'pass'), 'error');
+});
 
 // Step results, the CLI, and desktop sessions print `label()`. Nothing else asserts the wording,
 // including the branches that are not `${kind} "${target}"`.
