@@ -53,4 +53,37 @@ for (const { cli, header, action } of engines) {
     assert.equal(invalid.status, 1, invalid.stderr);
     assert.match(invalid.stdout, new RegExp(`^✘ ${bad}: .*env.missing.*not defined`, 'm'));
   });
+  test(`${cli}: validate warns on a literal secret in a fill step or an env key, not on $VAR`, () => {
+    const literal = `${cli}-literal.yaml`;
+    fs.writeFileSync(path.join(dir, literal), `name: Literal\n${header}\n` +
+      'env: {apiKey: abc123, user: ada, credentials: {stripe: sk_test_1}}\nsteps:\n' +
+      `  - fill: { target: the Password field, value: hunter2 }\n  - fill: { target: the Name field, value: '\${env.user}' }\n`);
+    const warned = run(cli, ['validate', literal]);
+    assert.equal(warned.status, 0, warned.stderr);
+    assert.match(warned.stdout, new RegExp(`^✔ ${literal}$`, 'm'));
+    assert.match(warned.stdout, new RegExp(`^! ${literal}: .*"env\\.apiKey" holds a literal secret`, 'm'));
+    assert.match(warned.stdout, new RegExp(`^! ${literal}: .*"env\\.credentials\\.stripe" holds a literal secret`, 'm'));
+    assert.match(warned.stdout, new RegExp(`^! ${literal}: .*step 0 fills "the Password field" with a literal secret`, 'm'));
+    assert.equal(warned.stdout.match(/literal secret/g)?.length, 3, warned.stdout);
+    const referenced = `${cli}-referenced.yaml`;
+    fs.writeFileSync(path.join(dir, referenced), `name: Referenced\n${header}\n` +
+      'env: {password: $PLAIN_TEST_UNSET_PASSWORD, db_pass: $PLAIN_TEST_UNSET_PASSWORD}\nsteps:\n' +
+      `  - fill: { target: the Password field, value: '\${env.password}' }\n`);
+    const clean = run(cli, ['validate', referenced]);
+    assert.equal(clean.status, 0, clean.stderr);
+    assert.doesNotMatch(clean.stdout, /literal secret/);
+  });
 }
+
+test('cli.js: validate warns on a literal auth pass and names the flow of an included literal fill', () => {
+  fs.mkdirSync(path.join(dir, 'flows'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'flows/sign-in.yaml'), 'steps:\n  - fill: { target: the PIN field, value: "1234" }\n');
+  const spec = 'auth-literal.yaml';
+  fs.writeFileSync(path.join(dir, spec), 'name: Auth\nurl: https://example.com\nauth: { user: admin, pass: admin }\n' +
+    'steps:\n  - goto: /\n  - include: ./flows/sign-in.yaml\n');
+  const warned = run('cli.js', ['validate', spec]);
+  assert.equal(warned.status, 0, warned.stderr);
+  assert.match(warned.stdout, new RegExp(`^! ${spec}: .*"auth\\.pass" holds a literal secret`, 'm'));
+  assert.match(warned.stdout, new RegExp(`^! ${spec}: .*flows.sign-in\\.yaml: step 0 fills "the PIN field" with a literal secret`, 'm'));
+  assert.doesNotMatch(warned.stdout, /auth\.user/);
+});

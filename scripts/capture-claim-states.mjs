@@ -44,7 +44,7 @@ const loginForm = async (page, password) => {
 };
 const STATES = {
   'login-error': (page) => login(page, 'tomsmith', 'wrong-password'),
-  // The demo's published credentials, as in examples/login.yaml.
+  // The demo's published credentials, the ones its login page shows.
   'login-ok': (page) => login(page, 'tomsmith', 'SuperSecretPassword!'),
   checkboxes: (page) => page.goto(`${INTERNET}/checkboxes`),
   dropdown: async (page) => {

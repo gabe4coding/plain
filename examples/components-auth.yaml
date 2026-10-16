@@ -1,6 +1,7 @@
 name: http basic and digest auth, plus a secure download
 url: https://the-internet.herokuapp.com
-auth: { user: admin, pass: admin }
+# Before a run, set DEMO_BASIC_PASS to the demo's Basic Auth password (see .env.example).
+auth: { user: admin, pass: $DEMO_BASIC_PASS }
 steps:
   - goto: /basic_auth
   - expect: "the Basic Auth page confirms the credentials were correct, with a congratulations message"

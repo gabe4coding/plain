@@ -1,5 +1,7 @@
 name: login fails with wrong password
 url: https://the-internet.herokuapp.com
+# Fails on purpose: the literal password is wrong.
+tags: [expect-fail]
 steps:
   - goto: /login
   - fill: { target: "the username field", value: "tomsmith" }
