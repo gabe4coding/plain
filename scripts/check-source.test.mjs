@@ -52,11 +52,12 @@ test('counts each type escape of the casts rule in code, and a @ts- directive, b
   const text = ['const a = b!.c(d!) as any;', '// e as any, f!', '  // @ts-ignore', 'const g = (h as unknown) as I;',
     "if (j !== k && !l) throw new Error('Saved! as any: any'); // done!", 'let m!: (n: string) => any;',
     'const o = p', '  .q()!;', '/** @ts-ignore */', '/*', ' * @ts-expect-error', ' */',
-    'r(); // see // @ts-ignore', "const s = '// @ts-ignore' + `/* @ts-nocheck ${t} */`;"].join('\n');
+    'r(); // see // @ts-ignore', "const s = '// @ts-ignore' + `/* @ts-nocheck ${t} */`;", 'u(); // @ts-ignore',
+    'v(); /* @ts-expect-error */', 'w();'].join('\n');
   const kinds = ruleHits(casts, 'src/a.ts', text).map(({ line, message }) => `${line} ${message.split(' skips')[0]}`);
   assert.deepEqual(kinds, ['1 `as any`', '1 a non-null `!`', '1 a non-null `!`', '3 a `@ts-` directive',
     '4 `as unknown as`', '6 a definite `!`', '6 an `any` type', '8 a non-null `!`', '9 a `@ts-` directive',
-    '11 a `@ts-` directive']);
+    '11 a `@ts-` directive', '15 a `@ts-` directive', '16 a `@ts-` directive']);
 });
 
 test('takes the message of a check hit, and rejects a malformed or throwing check with the file', () => {

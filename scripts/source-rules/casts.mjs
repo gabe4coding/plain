@@ -56,11 +56,18 @@ function escapes(text, path) {
 /** The positions of the `@ts-` directives: only in the real comments, so a string that holds one is no hit. */
 function directives(file, text) {
   const comments = new Map();
+  const scanned = new Set();
   const visit = (node) => {
     // The JSDoc nodes are the comments again, parsed.
     if (node.kind >= SyntaxKind.FirstJSDocNode && node.kind <= SyntaxKind.LastJSDocNode) return;
-    // Each comment is in front of a token, the end of the file at the latest.
-    for (const range of ts.getLeadingCommentRanges(text, node.pos) ?? []) comments.set(range.pos, range.end);
+    // Each comment is in the trivia in front of a token, the end of the file at the latest: the trailing ranges are
+    // the comments up to the first line break (after code, `a; // @ts-ignore`), the leading ranges the ones after it.
+    // A node and its first child start at the same trivia.
+    if (!scanned.has(node.pos)) {
+      scanned.add(node.pos);
+      for (const range of [...ts.getTrailingCommentRanges(text, node.pos) ?? [],
+        ...ts.getLeadingCommentRanges(text, node.pos) ?? []]) comments.set(range.pos, range.end);
+    }
     for (const child of node.getChildren(file)) visit(child);
   };
   visit(file);
@@ -93,6 +100,8 @@ export default {
       { path: 'src/a.ts', text: 'callback!();' },
       { path: 'src/a.ts', text: 'let ready!: boolean;' },
       { path: 'src/a.ts', text: '  // @ts-expect-error\nconst n: number = "x";' },
+      { path: 'src/a.ts', text: 'export const ok = 1; // @ts-ignore\nexport const n: number = "x";' },
+      { path: 'src/a.ts', text: 'export const ok = 1; /* @ts-expect-error */\nexport const n: number = "x";' },
     ],
     miss: [
       { path: 'src/a.ts', text: '// a value read as any is a type escape, value!\nconst a = 1;' },

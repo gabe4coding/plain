@@ -4,7 +4,10 @@
 // case raises its floor, so that a later removal fails; a change that removes one lowers it and says why.
 // The threshold and include checks read dist/, so they need a build first (`npm test` builds).
 // The skip scan reads the source, so it does not see a skip or todo whose options sit in a variable (unless set to
-// true), a call as `t[name]()` with a variable name, or options with a nested `}` before the key.
+// true), a call as `t[name]()` with a variable name, options with a nested `}` before the key, options of a test
+// whose name is a variable or a concatenation (`test(name, { skip })`, `test('a' + b, ...)`), a destructured or
+// aliased skip (`const { skip } = t; skip()`, `const later = t.skip`), an early `return` in the test body, or a test
+// that is registered only under a condition (`if (ci) test(...)`).
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -63,7 +66,8 @@ function optionalKeys(value, path = '') {
 // unless set to false, or set to true anywhere.
 const CALL = /(?:\.|\?\.|\[\s*['"`])(?:skip|only|todo)(?:['"`]\s*\])?\s*(?:\?\.)?\s*\(/g;
 const NAME = /(['"`])(?:\\.|(?!\1)[^\\])*\1/.source;
-const OPTION = new RegExp(`\\b(?:test|it|describe|suite)\\s*\\(\\s*${NAME}\\s*,\\s*\\{[^}]*?\\b(?:skip|only|todo)\\b(?!\\s*:\\s*false\\b)`, 'g');
+// Only a bare `false` is no skip: `false || process.env.CI` is one.
+const OPTION = new RegExp(`\\b(?:test|it|describe|suite)\\s*\\(\\s*${NAME}\\s*,\\s*\\{[^}]*?\\b(?:skip|only|todo)\\b(?!\\s*:\\s*false\\s*[,}])`, 'g');
 const SET_TRUE = /\b(?:skip|only|todo)\s*:\s*true\b/g;
 
 /** The `line: text` of each skip, only or todo in a test file's source, at the line of the word. */
@@ -98,8 +102,12 @@ test('the skip detector finds calls, options and true flags, also on the next li
     "test('h', () => { applies({ ...RULE, skip: /x/ }); });",
     "const filter = { only: ['a'], skip };",
     "test('j', { skip: false, only: false }, () => {});",
+    "test('k', { sk@ip: false || process.env.CI }, () => {});",
+    "test('l', { timeout: 5, to@do: false",
+    '  && later }, () => {});',
+    "test('m', { only: false }, () => {});",
   ].join('\n').replaceAll('@', '');
-  assert.deepEqual(skipHits(source).map((hit) => Number(hit.split(':')[0])), [1, 2, 3, 5, 7, 8, 9]);
+  assert.deepEqual(skipHits(source).map((hit) => Number(hit.split(':')[0])), [1, 2, 3, 5, 7, 8, 9, 13, 14]);
 });
 
 test('no e2e step is optional, also in an included flow', () => {
