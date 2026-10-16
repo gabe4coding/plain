@@ -1,10 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
-import { once } from 'node:events';
 import { AppiumAdapter, mobileCapabilities } from './adapter.js';
 import { HiddenTargetError } from '../core/automation.js';
-import { parseMobileTree, mobileFrame, findMobileNode, type MobileNode, type MobileElement, type MobileKind } from './tree.js';
+import { parseMobileTree, mobileFrame, type MobileElement, type MobileKind } from './tree.js';
+import { appiumFixture, ELEMENT, lookupNode, withoutAttributes } from './appium-fixture.test.js';
 
 const android = `<?xml version="1.0"?><hierarchy rotation="0"><android.widget.FrameLayout enabled="true">
   <android.view.ViewGroup clickable="true" enabled="true"><android.widget.TextView text="Sign in &amp; continue" enabled="true"/></android.view.ViewGroup>
@@ -141,43 +140,29 @@ test('bounds visibility keeps on-screen nodes and drops empty or scrolled-out on
 // Exercise the actual WebdriverIO transport against a local W3C/Appium server. No device or model key.
 for (const platform of ['android', 'ios'] as const) {
   test(`${platform} Appium transport: actions, state, gestures, stale targets, and cleanup`, async () => {
-    const requests: { method: string; path: string; body: Record<string, any> }[] = [];
     let source = platform === 'ios' ? ios : android;
     let checked = false;
-    const server = createServer(async (req, res) => {
-      let text = ''; for await (const chunk of req) text += chunk;
-      const body = text ? JSON.parse(text) : {};
-      const path = req.url!; requests.push({ method: req.method!, path, body });
-      let value: unknown = null;
-      if (path === '/wd/hub/session' && req.method === 'POST') value = { sessionId: 'fixture', capabilities: {
-        platformName: platform === 'ios' ? 'iOS' : 'Android', 'appium:automationName': platform === 'ios' ? 'XCUITest' : 'UiAutomator2',
-      } };
-      else if (path.endsWith('/source')) value = source;
+    const server = await appiumFixture(platform, () => source, ({ method, path, body }) => {
       // iOS reads leave out costly attributes: `visible` for targets, `accessible` for claims and regions.
-      else if (path.endsWith('/execute/sync') && body.script === 'mobile: source') {
+      if (path.endsWith('/execute/sync') && body.script === 'mobile: source') {
         const excluded: string = body.args[0].excludedAttributes;
         assert.equal(platform, 'ios'); assert.ok(['visible', 'accessible', 'visible,accessible'].includes(excluded));
-        value = excluded.split(',').reduce((xml: string, name) => xml.replaceAll(new RegExp(` ${name}="[^"]*"`, 'g'), ''), source);
+        return undefined;
       }
-      else if (path.endsWith('/element') && req.method === 'POST') {
-        value = { 'element-6066-11e4-a52e-4f735466cecf': 'control' };
+      if (path.endsWith('/element') && method === 'POST') {
         // XCUITest answers with the attributes the session asked for (elementResponseAttributes).
-        const all = (nodes: MobileNode[]): MobileNode[] => nodes.flatMap(n => [n, ...all(n.children)]);
-        const roots = parseMobileTree(source).roots;
-        const node = platform !== 'ios' ? undefined : body.using === '-ios class chain'
-          ? all(roots).find(n => n.chain === body.value) : findMobileNode(roots, body.value);
-        if (node) value = { ...value as object, type: node.role, enabled: node.enabled, rect: { x: 0, y: 0, width: 10, height: 10 },
-          'attribute/name': node.attrs.name ?? null, 'attribute/label': node.attrs.label ?? null, 'attribute/visible': node.visible };
+        const node = platform === 'ios' ? lookupNode(source, body) : undefined;
+        return node ? { [ELEMENT]: 'control', type: node.role, enabled: node.enabled, rect: { x: 0, y: 0, width: 10, height: 10 },
+          'attribute/name': node.attrs.name ?? null, 'attribute/label': node.attrs.label ?? null, 'attribute/visible': node.visible } : { [ELEMENT]: 'control' };
       }
-      else if (/\/attribute\//.test(path)) value = platform === 'ios' ? (checked ? '1' : '0') : String(checked);
-      else if (path.endsWith('/click')) checked = !checked;
-      else if (path.endsWith('/window/rect')) value = { x: 0, y: 0, width: 400, height: 800 };
-      else if (path.endsWith('/screenshot')) value = Buffer.from('png fixture').toString('base64');
-      res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ value }));
+      if (/\/attribute\//.test(path)) return platform === 'ios' ? (checked ? '1' : '0') : String(checked);
+      if (path.endsWith('/click')) checked = !checked;
+      else if (path.endsWith('/window/rect')) return { x: 0, y: 0, width: 400, height: 800 };
+      else if (path.endsWith('/screenshot')) return Buffer.from('png fixture').toString('base64');
+      return undefined;
     });
-    server.listen(0, '127.0.0.1'); await once(server, 'listening');
-    const port = (server.address() as { port: number }).port;
-    const adapter = new AppiumAdapter(`http://127.0.0.1:${port}/wd/hub`, 1000);
+    const { requests } = server;
+    const adapter = new AppiumAdapter(server.url, 1000);
     async function target(kind: MobileKind): Promise<MobileElement> {
       const frame = await adapter.capture(kind); return frame.elements.get(0)!;
     }
@@ -256,7 +241,7 @@ for (const platform of ['android', 'ios'] as const) {
       await assert.rejects(adapter.act('tap', stale), /UI changed/);
       if (platform === 'ios') {
         // fastTargets: target captures skip `visible`; the lookup reports a covered pick, and the next capture is exact.
-        const fast = new AppiumAdapter(`http://127.0.0.1:${port}/wd/hub`, 1000, undefined, true);
+        const fast = new AppiumAdapter(server.url, 1000, undefined, true);
         await fast.open({ platform, device: 'fixture-device', app: 'com.example.fixture' });
         const reads = () => requests.filter(r => r.path.endsWith('/source') || r.body.args?.[0]?.excludedAttributes === 'accessible').length;
         const exactBefore = reads();
@@ -282,49 +267,32 @@ for (const platform of ['android', 'ios'] as const) {
         assert.equal((await fast.capture('region', undefined, { regionPick: true })).approximate, undefined, 'then the next pick is exact');
         await fast.close();
       }
-    } finally { await adapter.close(); server.close(); server.closeAllConnections(); await once(server, 'close'); }
+    } finally { await adapter.close(); await server.close(); }
   });
 }
 
 test('iOS resolve fails closed on string or missing lookup visibility, and does not treat size as visible', async () => {
-  const requests: { method: string; path: string; body: Record<string, any> }[] = [];
   // bool: the attribute path's "true" string still acts. string-false / missing: fail closed.
   // no-type: elementResponseAttributes ignored; the tree's visible decides, not width/height.
   // no-type-bare: that tree also lacks `visible`, so a positive size is not enough.
   let mode: 'string-true' | 'string-false' | 'missing' | 'no-type' | 'no-type-bare' = 'string-true';
-  const server = createServer(async (req, res) => {
-    let text = ''; for await (const chunk of req) text += chunk;
-    const body = text ? JSON.parse(text) : {};
-    const path = req.url!; requests.push({ method: req.method!, path, body });
-    let value: unknown = null;
-    if (path === '/wd/hub/session' && req.method === 'POST') value = { sessionId: 'fixture', capabilities: {
-      platformName: 'iOS', 'appium:automationName': 'XCUITest' } };
-    else if (path.endsWith('/source')) value = ios;
-    else if (path.endsWith('/execute/sync') && body.script === 'mobile: source') {
-      const excluded: string = body.args[0].excludedAttributes;
-      value = excluded.split(',').reduce((xml: string, name) => xml.replaceAll(new RegExp(` ${name}="[^"]*"`, 'g'), ''), ios);
-      if (mode === 'no-type-bare') value = String(value).replaceAll(/ visible="[^"]*"/g, '');
-    } else if (path.endsWith('/element') && req.method === 'POST') {
-      value = { 'element-6066-11e4-a52e-4f735466cecf': 'control' };
-      if (mode === 'no-type' || mode === 'no-type-bare') { /* id only: ref.type stays undefined */ }
-      else {
-        const all = (nodes: MobileNode[]): MobileNode[] => nodes.flatMap(n => [n, ...all(n.children)]);
-        const roots = parseMobileTree(ios).roots;
-        const node = body.using === '-ios class chain' ? all(roots).find(n => n.chain === body.value) : findMobileNode(roots, body.value);
-        if (!node) value = { error: 'no such element' };
-        else {
-          value = { ...value as object, type: node.role, enabled: node.enabled, rect: { x: 0, y: 0, width: 10, height: 10 },
-            'attribute/name': node.attrs.name ?? null, 'attribute/label': node.attrs.label ?? null };
-          if (mode === 'string-true') (value as Record<string, unknown>)['attribute/visible'] = 'true';
-          if (mode === 'string-false') (value as Record<string, unknown>)['attribute/visible'] = 'false';
-        }
-      }
+  const server = await appiumFixture('ios', () => ios, ({ method, path, body }) => {
+    if (path.endsWith('/execute/sync') && body.script === 'mobile: source') {
+      const value = withoutAttributes(ios, body.args[0].excludedAttributes);
+      return mode === 'no-type-bare' ? value.replaceAll(/ visible="[^"]*"/g, '') : value;
     }
-    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ value }));
+    if (!path.endsWith('/element') || method !== 'POST') return undefined;
+    if (mode === 'no-type' || mode === 'no-type-bare') return { [ELEMENT]: 'control' }; // id only: ref.type stays undefined
+    const node = lookupNode(ios, body);
+    if (!node) return { error: 'no such element' };
+    const value: Record<string, unknown> = { [ELEMENT]: 'control', type: node.role, enabled: node.enabled, rect: { x: 0, y: 0, width: 10, height: 10 },
+      'attribute/name': node.attrs.name ?? null, 'attribute/label': node.attrs.label ?? null };
+    if (mode === 'string-true') value['attribute/visible'] = 'true';
+    if (mode === 'string-false') value['attribute/visible'] = 'false';
+    return value;
   });
-  server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const port = (server.address() as { port: number }).port;
-  const fast = new AppiumAdapter(`http://127.0.0.1:${port}/wd/hub`, 1000, undefined, true);
+  const { requests } = server;
+  const fast = new AppiumAdapter(server.url, 1000, undefined, true);
   const clicks = () => requests.filter(r => r.path.endsWith('/click')).length;
   const exactSources = () => requests.filter(r => r.method === 'GET' && r.path.endsWith('/source')).length;
   const approxSources = () => requests.filter(r => r.body.args?.[0]?.excludedAttributes === 'visible').length;
@@ -384,38 +352,27 @@ test('iOS resolve fails closed on string or missing lookup visibility, and does 
     assert.equal(clicks(), clicksBeforeBare, 'without the tree visible flag, size is not enough');
     await fast.capture('click');
     assert.equal(exactSources(), exactBeforeStrip + 1, 'a missing tree visible flag forces an exact retarget');
-  } finally { await fast.close(); server.close(); server.closeAllConnections(); await once(server, 'close'); }
+  } finally { await fast.close(); await server.close(); }
 });
 
 test('iOS waits after fill and a tap on a text control until the keyboard is on screen, and only then', async () => {
   // iOS 27 keeps the keyboard below the screen, visible="false", for about a second after typing returns.
-  const requests: { method: string; path: string; body: Record<string, any> }[] = [];
   let keyboard: 'absent' | 'never' | number = 3; // a number: how many more lookups still report it hidden
-  const server = createServer(async (req, res) => {
-    let text = ''; for await (const chunk of req) text += chunk;
-    const body = text ? JSON.parse(text) : {};
-    const path = req.url!; requests.push({ method: req.method!, path, body });
-    let value: unknown = null;
-    if (path === '/wd/hub/session' && req.method === 'POST') value = { sessionId: 'fixture', capabilities: { platformName: 'iOS', 'appium:automationName': 'XCUITest' } };
-    else if (path.endsWith('/source')) value = ios;
-    else if (path.endsWith('/element') && body.value === '**/XCUIElementTypeKeyboard') {
-      if (keyboard === 'absent') value = { error: 'no such element' };
-      else {
-        const hidden = keyboard === 'never' || keyboard-- > 0;
-        value = { 'element-6066-11e4-a52e-4f735466cecf': 'keyboard', type: 'XCUIElementTypeKeyboard', enabled: true,
-          rect: { x: 0, y: hidden ? 891 : 590, width: 402, height: 226 }, 'attribute/visible': !hidden };
-      }
-    } else if (path.endsWith('/element') && req.method === 'POST') {
-      const all = (nodes: MobileNode[]): MobileNode[] => nodes.flatMap(n => [n, ...all(n.children)]);
-      const node = all(parseMobileTree(ios).roots).find(n => n.chain === body.value)!;
-      value = { 'element-6066-11e4-a52e-4f735466cecf': 'control', type: node.role, enabled: node.enabled, rect: { x: 0, y: 0, width: 10, height: 10 },
-        'attribute/name': node.attrs.name ?? null, 'attribute/label': node.attrs.label ?? null, 'attribute/visible': node.visible };
+  const server = await appiumFixture('ios', () => ios, ({ method, path, body }) => {
+    if (path.endsWith('/element') && body.value === '**/XCUIElementTypeKeyboard') {
+      if (keyboard === 'absent') return { error: 'no such element' };
+      const hidden = keyboard === 'never' || keyboard-- > 0;
+      return { [ELEMENT]: 'keyboard', type: 'XCUIElementTypeKeyboard', enabled: true,
+        rect: { x: 0, y: hidden ? 891 : 590, width: 402, height: 226 }, 'attribute/visible': !hidden };
     }
-    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ value }));
+    if (path.endsWith('/execute/sync')) return null; // this server has no `mobile: source`
+    if (!path.endsWith('/element') || method !== 'POST') return undefined;
+    const node = lookupNode(ios, body)!;
+    return { [ELEMENT]: 'control', type: node.role, enabled: node.enabled, rect: { x: 0, y: 0, width: 10, height: 10 },
+      'attribute/name': node.attrs.name ?? null, 'attribute/label': node.attrs.label ?? null, 'attribute/visible': node.visible };
   });
-  server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const port = (server.address() as { port: number }).port;
-  const adapter = new AppiumAdapter(`http://127.0.0.1:${port}/wd/hub`, 1000);
+  const { requests } = server;
+  const adapter = new AppiumAdapter(server.url, 1000);
   const isLookup = (r: { body: Record<string, any> }) => r.body.value === '**/XCUIElementTypeKeyboard';
   const lookups = () => requests.filter(isLookup).length;
   const element = async (kind: MobileKind, label: string) => {
@@ -444,5 +401,5 @@ test('iOS waits after fill and a tap on a text control until the keyboard is on 
     await adapter.act('fill', field, 'capped');
     const waited = Date.now() - started;
     assert.ok(waited >= 1000 && waited < 2500, `a keyboard that never shows ends the wait at the action timeout (${waited} ms)`);
-  } finally { await adapter.close(); server.close(); server.closeAllConnections(); await once(server, 'close'); }
+  } finally { await adapter.close(); await server.close(); }
 });

@@ -1,4 +1,5 @@
 // Shared test fixtures; the .test name keeps them out of the plugin runtime (build-plugins skips *.test.js).
+import { isFailure } from '../../core/results.js';
 import type { Attempt, RunReport, SpecReport, SuiteOptions } from '../types.js';
 
 export const options: SuiteOptions = { files: ['case.yaml'], workers: 1, retries: 0, bail: 0, lastFailed: false,
@@ -22,7 +23,7 @@ export function run(specs: SpecReport[] = [spec('pass')]): RunReport {
       jevCalls: specs.flatMap((spec) => spec.attempts).reduce((sum, attempt) => sum + attempt.jevCalls, 0),
       tokens: specs.flatMap((spec) => spec.attempts).reduce((sum, attempt) => sum + attempt.totalTokens, 0),
       passed: specs.filter((spec) => spec.status === 'pass').length,
-      failed: specs.filter((spec) => ['fail', 'inconclusive', 'error'].includes(spec.status)).length,
+      failed: specs.filter((spec) => isFailure(spec.status)).length,
       flaky: specs.filter((spec) => spec.flaky).length,
       skipped: specs.filter((spec) => spec.status === 'skipped').length, replayed: 0, healed: 0,
     } };

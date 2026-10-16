@@ -7,17 +7,10 @@ import { runSuite } from '../run-suite.js';
 import { loadSpec } from '../../core/spec.js';
 import type { Status } from '../../core/results.js';
 import type { SuiteEngine, SuiteOptions } from '../types.js';
+import { capture, options as baseOptions } from './fixtures.test.js';
 
-const options = (files: string[], timing = false): SuiteOptions => ({ files, workers: 4, retries: 0, bail: 0,
-  lastFailed: false, tags: [], list: false, reporters: [{ name: 'text' }], timing });
+const options = (files: string[], timing = false): SuiteOptions => ({ ...baseOptions, files, workers: 4, reporters: [{ name: 'text' }], timing });
 const services = { provider: () => 'typesafe' as const, warmUp: () => {} };
-const capture = async (fn: () => Promise<unknown>): Promise<string[]> => {
-  const lines: string[] = [];
-  const old = console.log;
-  console.log = (...args) => { lines.push(args.join(' ')); };
-  try { await fn(); } finally { console.log = old; }
-  return lines;
-};
 
 test('browser text golden output covers every status, load error, and input order with four workers', async () => {
   const files = ['pass', 'fail', 'inconclusive', 'skipped', 'error', 'missing'];

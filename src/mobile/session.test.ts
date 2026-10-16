@@ -5,34 +5,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MobileSession, runMobileSpec } from './session.js';
 import { loadMobileSpec, parseMobileStep, MobileTargetSchema } from './spec.js';
-import type { MobileAdapter } from './adapter.js';
 import { HiddenTargetError } from '../core/automation.js';
 import type { MobileTarget } from './spec.js';
 import { createMobileServer } from './mcp.js';
 import { serialQueue } from '../core/serial-queue.js';
-import type { Intelligence } from '../core/automation.js';
+import { fakeIntelligence } from '../core/fake-intelligence.test.js';
+import { FakeMobileAdapter } from '../native/fake-adapter.test.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { askResult } from '../core/mcp-result.js';
 
-class FakeAdapter implements MobileAdapter<string> {
-  log: unknown[] = []; text = 'Ready'; closed = 0;
-  async open(target: MobileTarget) { this.log.push(target); return target; }
-  async capture(kind: unknown, within?: string) { this.log.push(['capture', kind, within]); return {
-    snapshot: { url: 'mobile://42', title: 'Fixture', aria: this.text, truncated: false },
-    candidates: [{ id: 0, desc: 'button Preview' }], elements: new Map([[0, 'control']]),
-  }; }
-  async act(...args: unknown[]) { this.log.push(args); }
-  async press(key: string) { this.log.push(['press', key]); if (key === 'Enter') throw new Error('input failed'); }
-  async gesture(...args: unknown[]) { this.log.push(['gesture', ...args]); }
-  async screenshot() { return Buffer.from('png'); }
-  async close() { this.closed++; }
-}
-const ai: Intelligence = {
-  pick: async (_c, targets) => targets.map((_, i) => ({ id: 0, probability: .95, probabilities: { '0': .95 }, tokens: i === 0 ? 10 : 0 })),
-  judge: async (_state, claims) => ({ probabilities: claims.map(() => .95), tokens: 7 }),
-  describe: async () => ({ screen: { type: 'other', probability: .99, confidence: .99 }, signals: {}, relevance: [], tokens: 100 }),
-};
+const ai = fakeIntelligence();
 test('mobile schema accepts shared steps and rejects browser-only vocabulary before acting', () => {
   for (const raw of [{ goto: '/' }, { upload: { target: 'file', files: ['a'] } }, { select: { target: 'list', value: 'a' } }, { click: 'css=button' }, { scroll: 'bottom' },
     { hover: 'button' }, { rightclick: 'row' }, { mouse: { x: 1, y: 1 } }, { drag: { source: 'a', target: 'b' } },
@@ -44,7 +27,7 @@ test('mobile schema accepts shared steps and rejects browser-only vocabulary bef
   assert.throws(() => MobileTargetSchema.parse({ platform: 'android', device: 'serial', app: 'package', url: '/' }));
 });
 test('mobile acts only after accepted picks, and gestures retain their direction', async () => {
-  const adapter = new FakeAdapter(); const session = new MobileSession(adapter, 100, ai);
+  const adapter = new FakeMobileAdapter(); const session = new MobileSession(adapter, 100, ai);
   assert.equal((await session.step({ fill: { target: 'Message', value: 'Hello' } })).status, 'pass');
   assert.deepEqual(adapter.log.at(-1), ['fill', 'control', 'Hello']);
   await session.step({ swipe: { direction: 'left', within: 'panel' } });
@@ -56,7 +39,7 @@ test('mobile acts only after accepted picks, and gestures retain their direction
   assert.equal(adapter.log.length, before + 1); // capture only
 });
 test('mobile scroll takes up, down, left and right, and a direction only after interpolation', async () => {
-  const adapter = new FakeAdapter();
+  const adapter = new FakeMobileAdapter();
   const picked: string[] = [];
   const session = new MobileSession(adapter, 100, { ...ai, pick: async (...args) => { picked.push(...args[1]); return ai.pick(...args); } });
   for (const direction of ['up', 'down', 'left', 'right']) {
@@ -71,9 +54,9 @@ test('mobile scroll takes up, down, left and right, and a direction only after i
   assert.equal(filled.status, 'error'); assert.match(filled.detail ?? '', /Mobile scroll syntax/);
 });
 test('a hidden pick is targeted again once from a new capture, then reported', async () => {
-  const adapter = new FakeAdapter(); const session = new MobileSession(adapter, 100, ai);
+  const adapter = new FakeMobileAdapter(); const session = new MobileSession(adapter, 100, ai);
   let hidden = 1;
-  adapter.act = async (...args: unknown[]) => { adapter.log.push(args); if (hidden-- > 0) throw new HiddenTargetError(); };
+  adapter.onAct = () => { if (hidden-- > 0) throw new HiddenTargetError(); };
   const r = await session.step({ tap: 'Preview' });
   assert.equal(r.status, 'pass'); assert.equal(r.ms?.retargeted, 1);
   assert.equal(adapter.log.filter((e) => Array.isArray(e) && e[0] === 'capture').length, 2);
@@ -82,10 +65,10 @@ test('a hidden pick is targeted again once from a new capture, then reported', a
   assert.equal(twice.status, 'error'); assert.match(twice.detail ?? '', /not visible/);
 });
 test('a rejected pick from an approximate capture is picked again from an exact one', async () => {
-  const adapter = new FakeAdapter(); let exact = false, prefer = 0;
+  const adapter = new FakeMobileAdapter(); let exact = false, prefer = 0;
   const capture = adapter.capture.bind(adapter);
   adapter.capture = async (kind: unknown, within?: string) => ({ ...await capture(kind, within), ...(exact ? {} : { approximate: true }) });
-  (adapter as FakeAdapter & { preferExact(): void }).preferExact = () => { prefer++; exact = true; };
+  (adapter as FakeMobileAdapter & { preferExact(): void }).preferExact = () => { prefer++; exact = true; };
   const scores = [.3, .8];
   const session = new MobileSession(adapter, 100, { ...ai, pick: async () => [{ id: 0, probability: scores.shift()!, probabilities: {}, tokens: 1 }] });
   const r = await session.step({ tap: 'Preview' });
@@ -100,31 +83,31 @@ test('a rejected pick from an approximate capture is picked again from an exact 
   assert.equal(rejected.status, 'pass'); assert.equal(rejected.ms?.retargeted, 1, 'a rejected approximate pick is asked again from an exact capture');
 });
 test('a covered region from an approximate pick is picked once more before its claims are judged', async () => {
-  const adapter = new FakeAdapter(); let covered = 1, prefer = 0;
+  const adapter = new FakeMobileAdapter(); let covered = 1, prefer = 0;
   const capture = adapter.capture.bind(adapter);
   adapter.capture = async (kind: unknown, within?: string, options?: { regionPick?: boolean }) => {
     if (within && covered-- > 0) throw new HiddenTargetError('Region');
     return { ...await capture(kind, within), ...(options?.regionPick && !prefer ? { approximate: true } : {}) };
   };
-  (adapter as FakeAdapter & { preferExact(): void }).preferExact = () => { prefer++; };
+  (adapter as FakeMobileAdapter & { preferExact(): void }).preferExact = () => { prefer++; };
   const r = await new MobileSession(adapter, 100, ai).step({ wait: { that: 'Ready', within: 'panel' } });
   assert.equal(r.status, 'pass'); assert.equal(r.ms?.retargeted, 1); assert.equal(prefer, 1);
   assert.equal(adapter.log.filter((e) => Array.isArray(e) && e[0] === 'capture' && e[1] === 'region' && e[2] === undefined).length, 2, 'two region picks');
 });
 test('scoped expectations use subtree, combine claims, and fail beats inconclusive', async () => {
-  const adapter = new FakeAdapter();
+  const adapter = new FakeMobileAdapter();
   const session = new MobileSession(adapter, 100, { ...ai, judge: async () => ({ probabilities: [.5, .05], tokens: 8 }) });
   const r = await session.step({ expect: { that: ['a', 'b'], within: 'panel' }, optional: true });
   assert.equal(r.status, 'fail'); assert.equal(session.tokens, 18);
   assert.deepEqual(adapter.log.at(-1), ['capture', 'region', 'control']);
 });
 test('optional tolerates errors but an explicit expectation failure is preserved', async () => {
-  const session = new MobileSession(new FakeAdapter(), 100, ai);
+  const session = new MobileSession(new FakeMobileAdapter(), 100, ai);
   assert.equal((await session.step({ press: 'Enter', optional: true })).status, 'skipped');
   assert.equal((await session.step({ press: 'Enter' })).status, 'error');
 });
 test('wait avoids rejudging unchanged negative snapshots and returns inconclusive at timeout', async () => {
-  const session = new MobileSession(new FakeAdapter(), 20, { ...ai, judge: async () => ({ probabilities: [0], tokens: 2 }) });
+  const session = new MobileSession(new FakeMobileAdapter(), 20, { ...ai, judge: async () => ({ probabilities: [0], tokens: 2 }) });
   assert.equal((await session.step({ wait: 'Ready' })).status, 'inconclusive');
   assert.equal(session.calls, 1);
 });
@@ -133,7 +116,7 @@ test('mobile YAML resolves env and hooks, teardown sees failures, and detach alw
   try {
     writeFileSync(join(dir, 'hooks.mjs'), `import {writeFileSync} from 'node:fs'; export const setup=()=>({key:'Enter'}); export const teardown=({result})=>writeFileSync(${JSON.stringify(join(dir, 'result.json'))},JSON.stringify(result));`);
     writeFileSync(join(dir, 'test.yaml'), 'name: test\nplatform: android\ndevice: emulator-5554\napp: Fixture\nhooks: ./hooks.mjs\nsteps:\n  - press: "${hooks.key}"\n');
-    const adapter = new FakeAdapter();
+    const adapter = new FakeMobileAdapter();
     const result = await runMobileSpec(loadMobileSpec(join(dir, 'test.yaml')), new MobileSession(adapter, 100, ai));
     assert.equal(result.status, 'error'); assert.equal(adapter.closed, 1);
     assert.equal(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')).status, 'error');
@@ -145,7 +128,7 @@ test('setup failure does not attach or call teardown; teardown failure marks run
     for (const setup of [true, false]) {
       const file = join(dir, 'hooks.mjs');
       writeFileSync(file, setup ? 'export const setup=()=>{throw Error("setup failure")}; export const teardown=()=>{throw Error("should not run")};' : 'export const teardown=()=>{throw Error("teardown failure")};');
-      const adapter = new FakeAdapter();
+      const adapter = new FakeMobileAdapter();
       const r = await runMobileSpec({ name: 'test', platform: 'android', device: 'emulator-5554', app: 'Fixture', dir, hooks: file, env: {}, steps: [] }, new MobileSession(adapter, 100, ai));
       assert.equal(r.status, 'error'); assert.equal(adapter.closed, 1);
       assert.equal(r.steps.at(-1)?.step, setup ? 'setup' : 'teardown');
@@ -154,7 +137,7 @@ test('setup failure does not attach or call teardown; teardown failure marks run
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 test('mobile replay resolves env target and reports close failure without losing action results', async () => {
-  const adapter = new FakeAdapter();
+  const adapter = new FakeMobileAdapter();
   adapter.close = async () => { adapter.closed++; throw new Error('session deletion failed'); };
   const result = await runMobileSpec({ name: 'target interpolation', platform: 'android', device: '${env.device}', app: '${env.app}',
     capabilities: { 'appium:appActivity': '${env.activity}' }, dir: process.cwd(),
@@ -165,7 +148,7 @@ test('mobile replay resolves env target and reports close failure without losing
   assert.equal(result.steps.at(-1)?.step, 'close'); assert.equal(adapter.closed, 1);
 });
 test('interpolated browser selectors are rejected before a mobile capture/action', async () => {
-  const adapter = new FakeAdapter();
+  const adapter = new FakeMobileAdapter();
   const session = new MobileSession(adapter, 100, ai);
   const result = await session.run({ kind: 'tap', target: 'css=button' });
   assert.equal(result.status, 'error'); assert.equal(adapter.log.length, 0);
@@ -178,7 +161,7 @@ test('queue serializes operations and continues after rejection', async () => {
 });
 test('real MCP protocol records successful placeholder steps, saves replayable YAML, and resets on open', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mobile-mcp-'));
-  const adapter = new FakeAdapter();
+  const adapter = new FakeMobileAdapter();
   const discoveries: string[] = [];
   const { server, close } = createMobileServer(adapter, 100, ai, {
     listDevices: async (platform) => { discoveries.push(`devices:${platform}`); return { scope: 'local', devices: [], errors: [] }; },
@@ -235,7 +218,7 @@ test('real MCP protocol records successful placeholder steps, saves replayable Y
     const path = join(dir, 'saved.yaml'); await call('save', { path });
     assert.match(readFileSync(path, 'utf8'), /\$\{hooks.text\}/);
     const spec = loadMobileSpec(path); assert.equal(spec.app, '${hooks.app}'); assert.equal(spec.steps.length, 1); assert.equal(spec.hooks, hook);
-    const replay = new FakeAdapter();
+    const replay = new FakeMobileAdapter();
     const replayResult = await runMobileSpec(spec, new MobileSession(replay, 100, ai));
     assert.equal(replayResult.status, 'pass');
     assert.equal((replay.log[0] as MobileTarget).app, 'Fixture');
@@ -248,7 +231,7 @@ test('real MCP protocol records successful placeholder steps, saves replayable Y
 });
 
 test('mobile early capture: Jev works on it while the settled capture runs; kept only when both match', async () => {
-  class EarlyAdapter extends FakeAdapter {
+  class EarlyAdapter extends FakeMobileAdapter {
     earlyText = 'Ready';
     async captureEarly(kind: unknown, within?: string) { this.log.push(['early', kind, within]); const f = await super.capture(kind, within); this.log.pop(); return { ...f, snapshot: { ...f.snapshot, aria: this.earlyText } }; }
   }
@@ -270,7 +253,7 @@ test('mobile early capture: Jev works on it while the settled capture runs; kept
   assert.equal(session.calls, 4); assert.equal(session.tokens, 28); // the discarded answer is still accounted
 });
 test('MCP: an approximate target capture is never the before of changed; the previous after is', async () => {
-  const adapter = new FakeAdapter() as FakeAdapter & { approximateTargets: boolean; preferExact(): void };
+  const adapter = new FakeMobileAdapter() as FakeMobileAdapter & { approximateTargets: boolean; preferExact(): void };
   adapter.approximateTargets = true;
   let exact = false;
   adapter.preferExact = () => { exact = true; };
@@ -282,7 +265,7 @@ test('MCP: an approximate target capture is never the before of changed; the pre
   };
   adapter.text = '- button "Compose"';
   const screens = ['- navigationbar "New Message"', '- navigationbar "Sent"'];
-  adapter.act = async (...args: unknown[]) => { adapter.log.push(args); adapter.text = screens.shift()!; };
+  adapter.onAct = () => { adapter.text = screens.shift()!; };
   const { server, close } = createMobileServer(adapter, 100, ai);
   const client = new Client({ name: 'test', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -316,9 +299,9 @@ test('ask maps probabilities to yes/no/unsure at the expect thresholds', () => {
 
 test('MCP steps report what they changed, picks see the open goal, read copies screen lines, save keeps the goal', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mobile-mcp-'));
-  const adapter = new FakeAdapter();
+  const adapter = new FakeMobileAdapter();
   adapter.text = '- navigationbar "Inbox"\n  - button "Compose"';
-  adapter.act = async (...args: unknown[]) => { adapter.log.push(args); adapter.text = '- navigationbar "New Message"\n  - textfield "To"'; };
+  adapter.onAct = () => { adapter.text = '- navigationbar "New Message"\n  - textfield "To"'; };
   const states: unknown[] = [];
   const asked: unknown[] = [];
   const { server, close } = createMobileServer(adapter, 100, {

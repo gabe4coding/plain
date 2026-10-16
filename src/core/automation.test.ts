@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTargets, judgeState, askSettled, type Intelligence } from './automation.js';
+import { resolveTargets, judgeState, askSettled } from './automation.js';
+import { fakeIntelligence } from './fake-intelligence.test.js';
 const adapter = { candidates: [{ id: 1, desc: 'button OK' }], state: { url: 'desktop://test', title: 'Test' }, element: () => 'handle' };
-const ai: Intelligence = {
+const ai = fakeIntelligence({
   pick: async () => [{ id: 1, probability: .4, confidence: .8, probabilities: { '1': .4 }, tokens: 12 }],
   judge: async () => ({ probabilities: [.95], tokens: 4 }),
-};
+});
 test('shared resolver uses confidence, accounts once, and maps accepted IDs through adapter', async () => {
   const [r] = await resolveTargets(adapter, ['OK'], ai);
   assert.equal(r.element, 'handle'); assert.equal(r.tokens, 12); assert.equal(r.usedJev, true);
@@ -35,7 +36,7 @@ test('shared judge halves oversized state and preserves all claims/events', asyn
 
 test('a region is judged without the page URL; a whole page with it', async () => {
   const states: unknown[] = [];
-  const spy: Intelligence = { ...ai, judge: async (state) => { states.push(state); return { probabilities: [.95], tokens: 1 }; } };
+  const spy = fakeIntelligence({ ...ai, judge: async (state) => { states.push(state); return { probabilities: [.95], tokens: 1 }; } });
   await judgeState({ ...adapter.state, aria: '- text: B', truncated: false, region: true }, ['B is shown'], ['downloaded'], spy);
   await judgeState({ ...adapter.state, aria: '- text: B', truncated: false }, ['B is shown'], [], spy);
   assert.deepEqual(states, [{ title: 'Test', aria: '- text: B', events: ['downloaded'] }, { url: 'desktop://test', title: 'Test', aria: '- text: B', events: [] }]);

@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { runSpec } from '../browser/runner.js';
 import { sharedBrowser, closeSharedBrowser } from '../browser/session.js';
-import { NativeSession, type NativeAdapter } from '../native/session.js';
+import { NativeSession } from '../native/session.js';
+import { FakeNativeAdapter } from '../native/fake-adapter.test.js';
 import { runNativeSpec } from '../native/run-spec.js';
 import { mobileLabel, type MobileStep } from '../mobile/spec.js';
 import { checkSpecTimeoutFlag } from './spec-timeout.js';
@@ -103,17 +104,16 @@ test('browser spec timeout overrides the flag; the flag supplies a budget when o
   assert.equal(timedOut.steps[0].detail, 'spec timeout after 1 ms');
 });
 
-class SlowAdapter implements NativeAdapter<unknown, string> {
-  actions: string[] = [];
-  closed = false;
+/** A press that `hangs` waits until close, which rejects it. */
+class SlowAdapter extends FakeNativeAdapter {
   reject?: (error: Error) => void;
-  async capture() { return { snapshot: { url: 'native://fixture', title: 'Fixture', aria: '', truncated: false }, candidates: [], elements: new Map() }; }
-  async press(key: string) {
-    this.actions.push(key);
-    if (key === 'slow') await new Promise<void>((_resolve, reject) => { this.reject = reject; });
+  constructor(readonly hangs: (key: string) => boolean = (key) => key === 'slow') { super('native://fixture'); }
+  override async press(key: string) {
+    await super.press(key);
+    if (this.hangs(key)) await new Promise<void>((_resolve, reject) => { this.reject = reject; });
   }
-  async screenshot() { return Buffer.from('png'); }
-  async close() { this.closed = true; this.reject?.(new Error('closed')); }
+  override async close() { await super.close(); this.reject?.(new Error('closed')); }
+  presses() { return this.log.flatMap((entry) => (Array.isArray(entry) && entry[0] === 'press' ? [entry[1]] : [])); }
 }
 class SlowSession extends NativeSession<unknown, string, MobileStep, SlowAdapter> {
   parse(): MobileStep { throw Error('not used'); }
@@ -127,23 +127,22 @@ class SlowSession extends NativeSession<unknown, string, MobileStep, SlowAdapter
 test('desktop and mobile timeouts stop optional slow actions, retain labels, and teardown before closing', async (t) => {
   const { hooks, events } = fixture(t);
   for (const mobile of [false, true]) {
-    const adapter = new SlowAdapter();
+    const adapter = mobile ? new SlowAdapter(() => true) : new SlowAdapter();
     const session = new SlowSession(adapter);
     const steps: MobileStep[] = mobile
       ? [{ kind: 'swipe', direction: 'up', within: 'list', origin: 'flow.yaml', optional: true }, { kind: 'press', key: 'next' }]
       : [{ kind: 'press', key: 'slow', origin: 'flow.yaml', optional: true }, { kind: 'press', key: 'next' }];
-    if (mobile) adapter.press = async (key) => { adapter.actions.push(key); await new Promise<void>((_resolve, reject) => { adapter.reject = reject; }); };
     const spec = { name: 'native', env: {}, hooks, steps, ...(mobile ? { platform: 'android' } : {}) };
     const order: string[] = [];
     const result = await runNativeSpec(spec, session, async () => steps, {
       sessionOpen: async () => { order.push('open'); },
       stepEnd: async () => { order.push('step'); },
-      sessionClose: async () => { assert.equal(adapter.closed, false); order.push('close'); return []; },
+      sessionClose: async () => { assert.equal(adapter.closed, 0); order.push('close'); return []; },
     }, undefined, 1000);
     assert.equal(result.status, 'error');
     assert.deepEqual(result.steps, [{ step: mobile ? 'flow.yaml › swipe up within "list"' : 'flow.yaml › press slow', status: 'error', detail: 'spec timeout after 1000 ms' }]);
-    assert.equal(adapter.actions.length, 1);
-    assert.equal(adapter.closed, true);
+    assert.equal(adapter.presses().length, 1);
+    assert.equal(adapter.closed, 1);
     assert.equal(JSON.parse(fs.readFileSync(events, 'utf8')).result.status, 'error');
     assert.deepEqual(order, ['open', 'step', 'close']);
   }
@@ -157,9 +156,9 @@ test('native setup time consumes the budget and spec timeout overrides the flag'
     const adapter = new SlowAdapter();
     const result = await runNativeSpec({ name: 'native', env: {}, hooks, steps, timeout }, new SlowSession(adapter), async () => steps, undefined, undefined, 100);
     assert.equal(result.status, timeout === undefined ? 'error' : 'pass');
-    assert.deepEqual(adapter.actions, timeout === undefined ? [] : ['Enter']);
+    assert.deepEqual(adapter.presses(), timeout === undefined ? [] : ['Enter']);
     if (timeout === undefined) assert.equal(result.steps[0].detail, 'spec timeout after 100 ms');
-    assert.equal(adapter.closed, true);
+    assert.equal(adapter.closed, 1);
     assert.deepEqual(JSON.parse(fs.readFileSync(events, 'utf8')).data, { lease: 7 });
   }
 });

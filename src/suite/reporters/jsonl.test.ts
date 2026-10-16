@@ -7,16 +7,11 @@ import { jsonlReporter } from './jsonl.js';
 import { runSuite } from '../run-suite.js';
 import { loadComputerSpec } from '../../computer/spec.js';
 import type { SuiteEngine, SuiteOptions } from '../types.js';
+import { attempt, capture, options, spec } from './fixtures.test.js';
 
 test('native reporter prints one JSON line with the legacy result fields', async () => {
-  const lines: string[] = [];
-  const old = console.log;
-  console.log = (line) => { lines.push(line); };
-  try {
-    await jsonlReporter().specEnd!({ report: { file: 'test.yaml', name: 'native', tags: [], status: 'pass', flaky: false,
-      attempts: [{ name: 'native', status: 'pass', steps: [{ step: 'tap "Save"', status: 'pass' }],
-        jevCalls: 2, totalTokens: 9, attempt: 0, durationMs: 12, artifacts: [] }] } });
-  } finally { console.log = old; }
+  const lines = await capture(() => jsonlReporter().specEnd!({ report: spec('pass', { file: 'test.yaml', name: 'native', tags: [],
+    attempts: [attempt('pass', { name: 'native', steps: [{ step: 'tap "Save"', status: 'pass' }], jevCalls: 2, totalTokens: 9, durationMs: 12 })] }) }));
   assert.deepEqual(lines, ['{"name":"native","status":"pass","steps":[{"step":"tap \\"Save\\"","status":"pass"}],"jevCalls":2,"totalTokens":9}']);
 });
 
@@ -36,8 +31,7 @@ test('native load errors go to stderr as file: error and write no stdout JSON', 
     throw new Error(`expected ${file} to fail to load`);
   };
   const expectedErrors = [yaml, schema, step].map(thrown);
-  const opts: SuiteOptions = { files: [yaml, good, schema, step], workers: 1, retries: 0, bail: 0, lastFailed: false,
-    tags: [], list: false, reporters: [{ name: 'jsonl' }], timing: false };
+  const opts: SuiteOptions = { ...options, files: [yaml, good, schema, step], reporters: [{ name: 'jsonl' }] };
   const engine: SuiteEngine<ReturnType<typeof loadComputerSpec>> = { engine: 'desktop', maxWorkers: 1,
     load: loadComputerSpec, meta: (spec) => ({ name: spec.name, tags: spec.tags ?? [] }),
     run: async (spec) => ({ name: spec.name, status: 'pass', steps: [{ step: 'click "Save"', status: 'pass' }], jevCalls: 1, totalTokens: 4 }) };
@@ -61,9 +55,8 @@ test('native run exceptions go to stderr as file: error, with no stdout JSON', a
   const [log, error] = [console.log, console.error];
   console.log = (line) => { out.push(line); }; console.error = (line) => { err.push(line); };
   try {
-    await jsonlReporter().specEnd!({ report: { file: 'run.yaml', name: 'native', tags: [], status: 'error', flaky: false,
-      attempts: [{ name: 'native', status: 'error', steps: [], jevCalls: 0, totalTokens: 0, error: 'Error: no adapter',
-        attempt: 0, durationMs: 1, artifacts: [] }] } });
+    await jsonlReporter().specEnd!({ report: spec('error', { file: 'run.yaml', name: 'native', tags: [],
+      attempts: [attempt('error', { name: 'native', steps: [], jevCalls: 0, totalTokens: 0, error: 'Error: no adapter', durationMs: 1 })] }) });
   } finally { console.log = log; console.error = error; }
   assert.deepEqual(out, []);
   assert.deepEqual(err, ['run.yaml: Error: no adapter']);

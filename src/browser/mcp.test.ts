@@ -6,10 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { mcpStdio } from '../core/mcp-stdio.test.js';
 
 // Drives the real server over stdio, as a plugin host does. CSS targets avoid paid model calls.
 let client: Client;
@@ -281,32 +280,13 @@ test('step results carry what the action changed; open keeps a goal that save wr
   assert.equal(parse(readFileSync(path, 'utf8')).goal, 'save the list');
 });
 
-test('the server shuts down when its input ends, with no signal (a host behind npx and a shell)', { timeout: 30000 }, async () => {
-  const cli = fileURLToPath(new URL('../cli.js', import.meta.url));
-  const child = spawn(process.execPath, [cli, '--headless', 'mcp'], { stdio: ['pipe', 'pipe', 'ignore'] });
-  const replies = new Map<number, (message: unknown) => void>();
-  let buffer = '';
-  child.stdout.on('data', (chunk: Buffer) => {
-    buffer += chunk;
-    for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
-      const message = JSON.parse(buffer.slice(0, end)) as { id?: number };
-      buffer = buffer.slice(end + 1);
-      if (message.id !== undefined) replies.get(message.id)?.(message);
-    }
-  });
-  const send = (message: object) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
-  const request = (id: number, method: string, params: object) =>
-    new Promise<{ result?: { isError?: boolean } }>((resolve) => { replies.set(id, resolve as (m: unknown) => void); send({ id, method, params }); });
-  await request(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'plain-test', version: '0' } });
-  send({ method: 'notifications/initialized' });
+test('the server shuts down when its input ends, with no signal (a host behind npx and a shell)', { timeout: 30000 }, async (t) => {
+  // `open` starts Chromium, which can be slow on a cold runner: the test timeout is the limit, not the reply time.
+  const server = mcpStdio(t, [fileURLToPath(new URL('../cli.js', import.meta.url)), '--headless', 'mcp'], { replyMs: 30000 });
+  await server.initialize();
   // An open page keeps Chromium, and so the server, alive unless end of input stops it.
-  const opened = await request(2, 'tools/call', { name: 'open', arguments: { url: 'data:text/html,<p>open</p>' } });
+  const opened = await server.request('tools/call', { name: 'open', arguments: { url: 'data:text/html,<p>open</p>' } });
   assert.ok(!opened.result?.isError, JSON.stringify(opened));
-  const exited = once(child, 'exit');
-  child.stdin.end();
-  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('still running 10 s after end of input')), 10000).unref());
-  try {
-    const [code] = await Promise.race([exited, timeout]) as [number | null];
-    assert.equal(code, 0);
-  } finally { child.kill('SIGKILL'); }
+  assert.equal(await server.end(10000), 0);
+  assert.deepEqual(server.notJsonRpc(), [], `stdout lines that are not JSON-RPC:\n${server.lines.join('\n')}`);
 });

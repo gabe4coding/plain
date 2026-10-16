@@ -9,31 +9,12 @@ import { loadComputerSpec, parseComputerStep, ComputerTargetSchema } from './spe
 import { matchesKind, captureTree, DESKTOP_COORDINATES, type ComputerAdapter } from './adapter.js';
 import { createComputerServer } from './mcp.js';
 import { serialQueue } from '../core/serial-queue.js';
-import type { Intelligence } from '../core/automation.js';
+import { fakeIntelligence } from '../core/fake-intelligence.test.js';
+import { FakeComputerAdapter } from '../native/fake-adapter.test.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-class FakeAdapter implements ComputerAdapter<string> {
-  log: unknown[] = []; text = 'Ready'; closed = 0;
-  async apps() { return [{ name: 'Fixture', pid: 42 }]; }
-  async open(target: unknown) { this.log.push(target); return { name: 'Fixture', pid: 42 }; }
-  async capture(kind: unknown, within?: string) { this.log.push(['capture', kind, within]); return {
-    snapshot: { url: 'desktop://42', title: 'Fixture', aria: this.text, truncated: false },
-    candidates: [{ id: 0, desc: 'button Preview' }], elements: new Map([[0, 'control']]),
-  }; }
-  async act(...args: unknown[]) { this.log.push(args); }
-  async press(key: string) { this.log.push(['press', key]); if (key === 'bad') throw new Error('input failed'); }
-  async mouse(x: number, y: number) { this.log.push(['mouse', x, y]); }
-  async drag(...args: unknown[]) { this.log.push(['drag', ...args]); }
-  async scroll(...args: unknown[]) { this.log.push(['scroll', ...args]); }
-  async screenshot() { return Buffer.from('png'); }
-  async close() { this.closed++; }
-}
-const ai: Intelligence = {
-  pick: async (_c, targets) => targets.map((_, i) => ({ id: 0, probability: .95, probabilities: { '0': .95 }, tokens: i === 0 ? 10 : 0 })),
-  judge: async (_state, claims) => ({ probabilities: claims.map(() => .95), tokens: 7 }),
-  describe: async () => ({ screen: { type: 'other', probability: .99, confidence: .99 }, signals: {}, relevance: [], tokens: 100 }),
-};
+const ai = fakeIntelligence();
 test('desktop schema accepts shared steps and rejects browser-only vocabulary before acting', () => {
   for (const raw of [{ goto: '/' }, { upload: { target: 'file', files: ['a'] } }, { select: { target: 'list', value: 'a' } }, { click: 'css=button' }, { scroll: 'bottom' }]) assert.throws(() => parseComputerStep(raw));
   assert.equal(parseComputerStep({ scroll: 'down: the list' }).kind, 'scroll');
@@ -41,7 +22,7 @@ test('desktop schema accepts shared steps and rejects browser-only vocabulary be
   assert.throws(() => ComputerTargetSchema.parse({}));
 });
 test('desktop scroll goes up, down, left and right: Jev picks the target without its direction, the wheel moves that way', async () => {
-  const adapter = new FakeAdapter();
+  const adapter = new FakeComputerAdapter();
   const picked: string[] = [];
   const session = new ComputerSession(adapter, 100, { ...ai, pick: async (...args) => { picked.push(...args[1]); return ai.pick(...args); } });
   // xa11y wheel deltas in lines: dx > 0 scrolls right, dy > 0 scrolls the content down.
@@ -63,7 +44,7 @@ test('desktop filters respect editable, disabled, hidden and checked controls', 
   assert.equal(matchesKind({ ...el, checked: 'on' }, 'check'), true);
 });
 test('desktop acts only after accepted picks, and a drag shares one model call', async () => {
-  const adapter = new FakeAdapter(); const session = new ComputerSession(adapter, 100, ai);
+  const adapter = new FakeComputerAdapter(); const session = new ComputerSession(adapter, 100, ai);
   assert.equal((await session.step({ fill: { target: 'Message', value: 'Hello' } })).status, 'pass');
   assert.deepEqual(adapter.log.at(-1), ['fill', 'control', 'Hello']);
   await session.step({ drag: { source: 'source', target: 'dest' } });
@@ -74,19 +55,19 @@ test('desktop acts only after accepted picks, and a drag shares one model call',
   assert.equal(adapter.log.length, before + 1); // capture only
 });
 test('scoped expectations use subtree, combine claims, and fail beats inconclusive', async () => {
-  const adapter = new FakeAdapter();
+  const adapter = new FakeComputerAdapter();
   const session = new ComputerSession(adapter, 100, { ...ai, judge: async () => ({ probabilities: [.5, .05], tokens: 8 }) });
   const r = await session.step({ expect: { that: ['a', 'b'], within: 'panel' }, optional: true });
   assert.equal(r.status, 'fail'); assert.equal(session.tokens, 18);
   assert.deepEqual(adapter.log.at(-1), ['capture', 'region', 'control']);
 });
 test('optional tolerates errors but an explicit expectation failure is preserved', async () => {
-  const session = new ComputerSession(new FakeAdapter(), 100, ai);
+  const session = new ComputerSession(new FakeComputerAdapter(), 100, ai);
   assert.equal((await session.step({ press: 'bad', optional: true })).status, 'skipped');
   assert.equal((await session.step({ press: 'bad' })).status, 'error');
 });
 test('wait avoids rejudging unchanged negative snapshots and returns inconclusive at timeout', async () => {
-  const session = new ComputerSession(new FakeAdapter(), 20, { ...ai, judge: async () => ({ probabilities: [0], tokens: 2 }) });
+  const session = new ComputerSession(new FakeComputerAdapter(), 20, { ...ai, judge: async () => ({ probabilities: [0], tokens: 2 }) });
   assert.equal((await session.step({ wait: 'Ready' })).status, 'inconclusive');
   assert.equal(session.calls, 1);
 });
@@ -95,7 +76,7 @@ test('desktop YAML resolves env and hooks, teardown sees failures, and detach al
   try {
     writeFileSync(join(dir, 'hooks.mjs'), `import {writeFileSync} from 'node:fs'; export const setup=()=>({key:'bad'}); export const teardown=({result})=>writeFileSync(${JSON.stringify(join(dir, 'result.json'))},JSON.stringify(result));`);
     writeFileSync(join(dir, 'test.yaml'), 'name: test\napp: Fixture\nhooks: ./hooks.mjs\nsteps:\n  - press: "${hooks.key}"\n');
-    const adapter = new FakeAdapter();
+    const adapter = new FakeComputerAdapter();
     const result = await runComputerSpec(loadComputerSpec(join(dir, 'test.yaml')), new ComputerSession(adapter, 100, ai));
     assert.equal(result.status, 'error'); assert.equal(adapter.closed, 1);
     assert.equal(JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')).status, 'error');
@@ -107,7 +88,7 @@ test('setup failure does not attach or call teardown; teardown failure marks run
     for (const setup of [true, false]) {
       const file = join(dir, 'hooks.mjs');
       writeFileSync(file, setup ? 'export const setup=()=>{throw Error("setup failure")}; export const teardown=()=>{throw Error("should not run")};' : 'export const teardown=()=>{throw Error("teardown failure")};');
-      const adapter = new FakeAdapter();
+      const adapter = new FakeComputerAdapter();
       const r = await runComputerSpec({ name: 'test', app: 'Fixture', dir, hooks: file, env: {}, steps: [] }, new ComputerSession(adapter, 100, ai));
       assert.equal(r.status, 'error'); assert.equal(adapter.closed, 1);
       assert.equal(r.steps.at(-1)?.step, setup ? 'setup' : 'teardown');
@@ -116,7 +97,7 @@ test('setup failure does not attach or call teardown; teardown failure marks run
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 test('native observer: sessionOpen after the adapter opens, a screenshot is safe there; nothing fires when open fails', async () => {
-  class RecordingAdapter extends FakeAdapter {
+  class RecordingAdapter extends FakeComputerAdapter {
     events: string[] = [];
     failOpen = false;
     override async open(target: unknown) { this.events.push('open'); if (this.failOpen) throw new Error('no app'); return super.open(target); }
@@ -155,7 +136,7 @@ test('queue serializes operations and continues after rejection', async () => {
 });
 test('real MCP protocol records successful placeholder steps, saves replayable YAML, and resets on open', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'computer-mcp-'));
-  const adapter = new FakeAdapter();
+  const adapter = new FakeComputerAdapter();
   const { server, close } = createComputerServer(adapter, 100, ai);
   const client = new Client({ name: 'test', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -208,7 +189,7 @@ test('real MCP protocol records successful placeholder steps, saves replayable Y
 });
 test('MCP teardown gets the status of a failed step when a passing step follows it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'computer-teardown-'));
-  const { server, close } = createComputerServer(new FakeAdapter(), 100, ai);
+  const { server, close } = createComputerServer(new FakeComputerAdapter(), 100, ai);
   const client = new Client({ name: 'test', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a); await client.connect(b);
@@ -230,7 +211,7 @@ export function teardown({ result }) { appendFileSync(${JSON.stringify(out)}, re
   } finally { await close(); await client.close(); await server.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 test('save writes a value typed into a secure text field as ${env.password}, and the saved spec replays it from the env', async () => {
-  class SecureAdapter extends FakeAdapter {
+  class SecureAdapter extends FakeComputerAdapter {
     secureField = false;
     secret() { return this.secureField; }
   }
@@ -265,7 +246,7 @@ test('save writes a value typed into a secure text field as ${env.password}, and
       ['${env.password}', '${env.password}', 'Hello', '${env.password2}']);
 
     process.env.PASSWORD = 'replayed-1'; process.env.PASSWORD_2 = 'replayed-2';
-    const replay = new FakeAdapter();
+    const replay = new FakeComputerAdapter();
     assert.equal((await runComputerSpec(loadComputerSpec(path), new ComputerSession(replay, 100, ai))).status, 'pass');
     assert.deepEqual(replay.log.filter((e) => Array.isArray(e) && e[0] === 'fill').map((e) => (e as string[])[2]),
       ['replayed-1', 'replayed-1', 'Hello', 'replayed-2']);
@@ -281,7 +262,7 @@ test('save writes a value typed into a secure text field as ${env.password}, and
   }
 });
 test('a window that appears after the previous step is waited for, not reported as no candidates', async () => {
-  class LateWindow extends FakeAdapter {
+  class LateWindow extends FakeComputerAdapter {
     empty = 2;
     override async capture(kind: unknown, within?: string) {
       const frame = await super.capture(kind, within);
@@ -346,7 +327,7 @@ test('a desktop spec routes once; spatial prompts get bounds and a layout, seman
   // Tree order is the reverse of the visual order: B comes first but is drawn on the right.
   const tree = box('application', 'Fixture', 0, [box('button', 'B', 300), box('button', 'A', 20), box('static_text', 'Total', 140)]);
   const clicked: string[] = [];
-  const adapter = Object.assign(new FakeAdapter(), {
+  const adapter = Object.assign(new FakeComputerAdapter(), {
     capture: async (kind: unknown, within: unknown, options?: { spatial?: boolean }) => {
       const frame = await captureTree((within ?? tree) as never, kind as never, 1000, { spatial: options?.spatial });
       return { snapshot: { url: 'desktop://42', title: 'Fixture', ...frame.snapshot }, candidates: frame.candidates, elements: frame.elements,
@@ -355,7 +336,7 @@ test('a desktop spec routes once; spatial prompts get bounds and a layout, seman
     act: async (_kind: unknown, element: { name: string }) => { clicked.push(element.name); },
   }) as unknown as ComputerAdapter<{ name: string }>;
   const routed: unknown[] = [];
-  const spatialAi: Intelligence = {
+  const spatialAi = fakeIntelligence({
     ask: async (state, questions) => {
       routed.push(state);
       const { groups } = state as { groups: string[][] };
@@ -375,7 +356,7 @@ test('a desktop spec routes once; spatial prompts get bounds and a layout, seman
       assert.match(layout!, /button "A" is left of static_text "Total"\./);
       return { probabilities: claims.map(() => 1), tokens: 3 };
     },
-  };
+  });
   const dir = mkdtempSync(join(tmpdir(), 'desktop-spatial-'));
   try {
     const file = join(dir, 'spatial.yaml');
