@@ -14,15 +14,17 @@
 //             more hits than the baseline fail, fewer print the new baseline to commit
 //   examples  { hit: [...], miss: [...] }, neither empty: lines for a pattern rule, { path, text } for a check
 //             rule. Each hit example must hit and each miss example must not, so a rule that can no longer find
-//             its violation fails instead of passing in silence
+//             its violation fails instead of passing in silence. A pattern example is a line of a JS or TS file
+//             when the rule checks only those, so a comment line is no hit example there
 // A rule that checks no file fails too. The RegExps take no `g` or `y` flag: those make `test` keep state between
 // lines. The files are the tracked ones and the untracked ones git does not ignore, so a new file is checked before
 // `git add`; a symbolic link is not checked, its target is. The rule files themselves are never checked: they hold
-// the patterns they look for. scripts/source-rules/ holds only rule files and baseline.json.
+// the patterns they look for. scripts/source-rules/ holds only rule files and baseline.json; the files git ignores
+// there are not read.
 //   node scripts/check-source.mjs              # this checkout
 //   node scripts/check-source.mjs --root <dir> # another checkout
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -71,9 +73,12 @@ export function ruleHits(rule, path, text) {
     return hits.map((hit) => ({ line: hit.line, message: hit.message ?? rule.message }));
   }
   const js = JS_FILE.test(path);
-  return text.split('\n').flatMap((code, i) =>
-    !(js && COMMENT_LINE.test(code)) && rule.pattern.test(code) ? [{ line: i + 1, message: rule.message }] : []);
+  return text.split('\n').flatMap((code, i) => (lineHits(rule, code, js) ? [{ line: i + 1, message: rule.message }]
+    : []));
 }
+
+/** True when the pattern of `rule` hits `line`; in a JS or TS file (`js`), a line that is only a comment is no code. */
+const lineHits = (rule, line, js) => !(js && COMMENT_LINE.test(line)) && rule.pattern.test(line);
 
 /** True when `list` is a non-empty array whose items all pass `valid`. */
 const nonEmpty = (list, valid) => Array.isArray(list) && list.length > 0 && list.every(valid);
@@ -108,24 +113,30 @@ export function ruleProblem(rule, file) {
   return null;
 }
 
-/** The examples of `rule` that give the wrong result, as problem texts. */
-function exampleProblems(rule) {
+/**
+ * The examples of `rule` that give the wrong result, as problem texts. When all the files the rule checks (`scope`)
+ * are JS or TS, a pattern example is read as a line of one, so an example on a comment line cannot pass.
+ */
+function exampleProblems(rule, scope) {
+  const js = scope.length > 0 && scope.every((path) => JS_FILE.test(path));
   const hits = rule.pattern
-    ? (line) => rule.pattern.test(line)
+    ? (line) => lineHits(rule, line, js)
     : ({ path, text }) => ruleHits(rule, path, text).length > 0;
   const show = (example) => JSON.stringify(rule.pattern ? example : example.path);
+  const why = (example) => (rule.pattern && rule.pattern.test(example)
+    ? ': a line that is only a comment is not code in a JS or TS file' : '');
   const missed = rule.examples.hit.filter((example) => !hits(example));
   return [
-    ...missed.map((example) => `hit example ${show(example)} has no hit`),
+    ...missed.map((example) => `hit example ${show(example)} has no hit${why(example)}`),
     ...rule.examples.miss.filter(hits).map((example) => `miss example ${show(example)} hits`),
   ];
 }
 
 /** What is wrong with one rule itself, and its hits in `files`. */
 function ruleResult(rule, files, read) {
-  const examples = exampleProblems(rule);
-  if (examples.length) return { problems: examples, hits: [] };
   const scope = files.filter((path) => inScope(rule, path));
+  const examples = exampleProblems(rule, scope);
+  if (examples.length) return { problems: examples, hits: [] };
   if (!scope.length) return { problems: ['checks no file: fix files, skip or tests'], hits: [] };
   const problems = (rule.allow ?? []).filter((entry) => !scope.some((path) => allows(entry, path)))
     .map((entry) => `allow entry "${entry}" names no file this rule checks: remove it`);
@@ -136,9 +147,10 @@ function ruleResult(rule, files, read) {
 
 /**
  * The problems (each `path:line: [rule] message`) and the notes of `rules` over `files`. `read(path)` gives a file's
- * text; `baseline` maps each ratchet rule to its allowed hit count.
+ * text; `baseline` maps each ratchet rule to its allowed hit count, or is null when it cannot be read. `broken` names
+ * the rule files that hold no valid rule: their baseline keys stay, so fixing the file keeps its count.
  */
-export function evaluate(rules, files, read, baseline) {
+export function evaluate(rules, files, read, baseline, broken = []) {
   const problems = [];
   const notes = [];
   for (const rule of rules) {
@@ -156,6 +168,8 @@ export function evaluate(rules, files, read, baseline) {
       problems.push(...hits);
       continue;
     }
+    // The baseline file's own problem is already reported: with no count, the hits mean nothing yet.
+    if (!baseline) continue;
     const allowed = baseline[rule.name];
     if (allowed === undefined) {
       problems.push(`${BASELINE_FILE}: [${rule.name}] no baseline: add "${rule.name}": ${hits.length}`);
@@ -169,33 +183,58 @@ export function evaluate(rules, files, read, baseline) {
         + `in ${BASELINE_FILE}`);
     }
   }
-  const names = new Set(rules.filter((rule) => rule.ratchet).map((rule) => rule.name));
-  for (const name of Object.keys(baseline).filter((key) => !names.has(key))) {
+  const names = new Set([...rules.filter((rule) => rule.ratchet).map((rule) => rule.name), ...broken]);
+  for (const name of Object.keys(baseline ?? {}).filter((key) => !names.has(key))) {
     problems.push(`${BASELINE_FILE}: [${name}] no ratchet rule has this name: remove it`);
   }
   return { problems, notes };
 }
 
-/** The rule modules of `root`, sorted by file name, and the problems of the files that hold none. */
-async function loadRules(root) {
-  const dir = join(root, RULES_DIR);
-  if (!existsSync(dir)) return { rules: [], problems: [] };
-  const entries = readdirSync(dir).sort();
-  const problems = entries.filter((name) => !name.endsWith('.mjs') && name !== basename(BASELINE_FILE))
+/**
+ * The rule modules among `paths` (the sorted repo-relative paths that git lists and that exist; `files` are the
+ * regular files of them), the problems of the entries in RULES_DIR that hold none, and the names of the rule files
+ * that hold no valid rule. A file git ignores there (an editor backup, a scratch rule) is not in `paths`, so it is
+ * neither loaded nor reported.
+ */
+async function loadRules(root, paths, files) {
+  const entries = paths.filter((path) => path.startsWith(`${RULES_DIR}/`))
+    .map((path) => path.slice(RULES_DIR.length + 1));
+  // A link is no rule file: its target could be outside the checkout, or another rule under a second name.
+  const regular = new Set(files);
+  const isRuleFile = (name) => name.endsWith('.mjs') && !name.includes('/') && regular.has(`${RULES_DIR}/${name}`);
+  const problems = entries.filter((name) => !isRuleFile(name) && name !== basename(BASELINE_FILE))
     .map((name) => `${RULES_DIR}/${name}: only rule files (<name>.mjs) and ${basename(BASELINE_FILE)} go here`);
-  const loaded = await Promise.all(entries.filter((name) => name.endsWith('.mjs')).map(async (name) => {
+  const loaded = await Promise.all(entries.filter(isRuleFile).map(async (name) => {
     try {
-      const rule = (await import(pathToFileURL(join(dir, name)).href)).default;
+      const rule = (await import(pathToFileURL(join(root, RULES_DIR, name)).href)).default;
       const problem = ruleProblem(rule, name);
-      return problem ? { problem: `${RULES_DIR}/${name}: ${problem}` } : { rule };
+      return problem ? { name, problem: `${RULES_DIR}/${name}: ${problem}` } : { rule };
     } catch (error) {
-      return { problem: `${RULES_DIR}/${name}: cannot load: ${textOf(error)}` };
+      return { name, problem: `${RULES_DIR}/${name}: cannot load: ${textOf(error)}` };
     }
   }));
+  const failed = loaded.filter(({ problem }) => problem);
   return {
     rules: loaded.flatMap(({ rule }) => (rule ? [rule] : [])),
-    problems: [...problems, ...loaded.flatMap(({ problem }) => (problem ? [problem] : []))],
+    problems: [...problems, ...failed.map(({ problem }) => problem)],
+    broken: failed.map(({ name }) => basename(name, '.mjs')),
   };
+}
+
+/** The counts in the baseline file of `root` ({} when there is none), or null and the problem that stops a read. */
+function readBaseline(root) {
+  const path = join(root, BASELINE_FILE);
+  if (!existsSync(path)) return { baseline: {} };
+  let baseline;
+  try {
+    baseline = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    return { baseline: null, problem: `${BASELINE_FILE}: cannot parse: ${textOf(error)}` };
+  }
+  if (baseline === null || typeof baseline !== 'object' || Array.isArray(baseline)) {
+    return { baseline: null, problem: `${BASELINE_FILE}: must be a JSON object of rule names and their counts` };
+  }
+  return { baseline };
 }
 
 async function main() {
@@ -205,18 +244,18 @@ async function main() {
     { encoding: 'utf8' });
   // A deleted file stays listed until it is staged, a submodule is listed as a folder, and a symbolic link (the
   // AGENTS.md notes) would count its target's hits twice.
-  const files = [...new Set(listed.split('\0'))]
-    .filter((path) => path && lstatSync(join(root, path), { throwIfNoEntry: false })?.isFile()).sort();
-  const baselinePath = join(root, BASELINE_FILE);
-  const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, 'utf8')) : {};
-  const { rules, problems: loadProblems } = await loadRules(root);
+  const stats = new Map([...new Set(listed.split('\0'))].filter(Boolean).sort()
+    .map((path) => [path, lstatSync(join(root, path), { throwIfNoEntry: false })]).filter(([, stat]) => stat));
+  const files = [...stats.keys()].filter((path) => stats.get(path).isFile());
+  const { baseline, problem: baselineProblem } = readBaseline(root);
+  const { rules, problems: loadProblems, broken } = await loadRules(root, [...stats.keys()], files);
   const texts = new Map();
   const read = (path) => {
     if (!texts.has(path)) texts.set(path, readFileSync(join(root, path), 'utf8'));
     return texts.get(path);
   };
-  const { problems: ruleProblems, notes } = evaluate(rules, files, read, baseline);
-  const problems = [...loadProblems, ...ruleProblems];
+  const { problems: ruleProblems, notes } = evaluate(rules, files, read, baseline, broken);
+  const problems = [...(baselineProblem ? [baselineProblem] : []), ...loadProblems, ...ruleProblems];
 
   for (const note of notes) console.log(note);
   if (problems.length) {

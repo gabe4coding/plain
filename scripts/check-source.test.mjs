@@ -1,6 +1,6 @@
 // Tests of the source rule runner: which files a rule checks, its hits, the rule format and its examples, the ratchet
-// against the baseline, then the CLI on a throwaway git repository with a planted rule, a new file that breaks it and
-// a link to that file.
+// against the baseline, then the CLI on a throwaway git repository with a planted rule, a new file that breaks it, a
+// link to that file, a broken baseline and files in the rules folder that git ignores or that are no rule.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { BASELINE_FILE, RULES_DIR, applies, evaluate, ruleHits, ruleProblem } from './check-source.mjs';
+import casts from './source-rules/casts.mjs';
 
 const script = join(dirname(fileURLToPath(import.meta.url)), 'check-source.mjs');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
@@ -45,6 +46,17 @@ test('finds pattern hits on code lines, skips JS comment lines only in JS and TS
   assert.deepEqual(ruleHits(NO_ANY, 'src/a.ts', text).map(({ line }) => line), [1, 5, 8, 9, 10]);
   assert.deepEqual(ruleHits(NO_ANY, 'scripts/a.mjs', text).map(({ line }) => line), [1, 5, 8, 9, 10]);
   assert.deepEqual(ruleHits(NO_ANY, 'docs/a.md', text).map(({ line }) => line), [1, 2, 3, 4, 5, 6, 8, 9, 10]);
+});
+
+test('counts each type escape of the casts rule in code, and a @ts- directive, but no text in strings or comments', () => {
+  const text = ['const a = b!.c(d!) as any;', '// e as any, f!', '  // @ts-ignore', 'const g = (h as unknown) as I;',
+    "if (j !== k && !l) throw new Error('Saved! as any: any'); // done!", 'let m!: (n: string) => any;',
+    'const o = p', '  .q()!;', '/** @ts-ignore */', '/*', ' * @ts-expect-error', ' */',
+    'r(); // see // @ts-ignore', "const s = '// @ts-ignore' + `/* @ts-nocheck ${t} */`;"].join('\n');
+  const kinds = ruleHits(casts, 'src/a.ts', text).map(({ line, message }) => `${line} ${message.split(' skips')[0]}`);
+  assert.deepEqual(kinds, ['1 `as any`', '1 a non-null `!`', '1 a non-null `!`', '3 a `@ts-` directive',
+    '4 `as unknown as`', '6 a definite `!`', '6 an `any` type', '8 a non-null `!`', '9 a `@ts-` directive',
+    '11 a `@ts-` directive']);
 });
 
 test('takes the message of a check hit, and rejects a malformed or throwing check with the file', () => {
@@ -91,7 +103,8 @@ test('rejects a rule module that breaks the format', () => {
 });
 
 const FILES = { 'src/a.ts': 'x as any\ny as any\n', 'src/b.ts': 'z as any\n', 'src/c.ts': 'clean\n' };
-const run = (rules, baseline = {}) => evaluate(rules, Object.keys(FILES), (path) => FILES[path], baseline);
+const run = (rules, baseline = {}, broken = []) =>
+  evaluate(rules, Object.keys(FILES), (path) => FILES[path], baseline, broken);
 const RATCHET = { ...NO_ANY, ratchet: true };
 
 test('reports each hit of a plain rule as a problem', () => {
@@ -114,6 +127,18 @@ test('fails a rule whose examples give the wrong result, before it reads a file'
   const check = { ...ONE_HIT, examples: { hit: [{ path: 'src/x.ts', text: '' }], miss: CHECK_EXAMPLES.miss } };
   assert.deepEqual(evaluate([check], ['src/a.ts'], read, {}).problems,
     [`${RULE_FILE}: [no-any] hit example "src/x.ts" has no hit`]);
+});
+
+test('reads a pattern example as a line of the files the rule checks: a comment line is no code in JS or TS', () => {
+  const clean = () => 'clean\n';
+  const comment = { ...NO_ANY, examples: { hit: ['// x as any'], miss: ['x as unknown'] } };
+  assert.deepEqual(evaluate([comment], ['src/a.ts'], clean, {}).problems, [`${RULE_FILE}: [no-any] hit example `
+    + '"// x as any" has no hit: a line that is only a comment is not code in a JS or TS file']);
+  assert.deepEqual(evaluate([{ ...comment, files: /\.md$/ }], ['docs/a.md'], clean, {}).problems, []);
+  assert.deepEqual(evaluate([{ ...comment, files: /\.(ts|md)$/ }], ['docs/a.md', 'src/a.ts'], clean, {}).problems,
+    []);
+  const skipped = { ...NO_ANY, examples: { hit: ['x as any'], miss: ['  // x as any'] } };
+  assert.deepEqual(evaluate([skipped], ['src/a.ts'], clean, {}).problems, []);
 });
 
 test('fails a rule that checks no file, a stale allow entry and a check that throws', () => {
@@ -157,6 +182,16 @@ test('fails a ratchet rule with no baseline or a baseline that is not a count, a
     [`${BASELINE_FILE}: [no-any] no ratchet rule has this name: remove it`]);
 });
 
+test('keeps the baseline key of a rule file that is broken: removing it would reset the ratchet', () => {
+  assert.deepEqual(run([], { 'no-any': 3, gone: 1 }, ['no-any']).problems,
+    [`${BASELINE_FILE}: [gone] no ratchet rule has this name: remove it`]);
+});
+
+test('checks no ratchet rule against a baseline that cannot be read, and still runs the other rules', () => {
+  assert.deepEqual(run([RATCHET, { ...NO_ANY, name: 'plain', files: /^src\/b\.ts$/ }], null).problems,
+    ['src/b.ts:1: [plain] use a real type']);
+});
+
 let repo;
 
 /** Write a file of the fixture repository, creating its folders. */
@@ -196,14 +231,47 @@ test('reports a hit in an untracked file once, as path:line: [rule] message, exi
   assert.deepEqual(check(), { code: 0, stdout: 'source rules ok: 1 rule(s)\n', problems: [] });
 });
 
+test('reports a baseline file that does not parse or is not an object, with no stack', () => {
+  try {
+    write(BASELINE_FILE, '{ "no-any": 1,\n');
+    const broken = check();
+    assert.equal(broken.code, 1);
+    assert.deepEqual(broken.problems.map((line) => line.replace(/cannot parse: .+/, 'cannot parse: <error>')),
+      [`${BASELINE_FILE}: cannot parse: <error>`]);
+    write(BASELINE_FILE, 'null\n');
+    assert.deepEqual(check(), { code: 1, stdout: '', problems: [
+      `${BASELINE_FILE}: must be a JSON object of rule names and their counts`] });
+  } finally {
+    rmSync(join(repo, BASELINE_FILE), { force: true });
+  }
+});
+
+test('takes the rule files from git: an ignored file in the rules folder is not loaded and not reported', () => {
+  try {
+    write('.gitignore', 'dist/\n.DS_Store\n*~\nscratch.mjs\n');
+    write(`${RULES_DIR}/.DS_Store`, '');
+    write(`${RULES_DIR}/no-any.mjs~`, RULE_SOURCE);
+    write(`${RULES_DIR}/scratch.mjs`, 'export default {\n');
+    assert.deepEqual(check(), { code: 0, stdout: 'source rules ok: 1 rule(s)\n', problems: [] });
+  } finally {
+    write('.gitignore', 'dist/\n');
+    for (const name of ['.DS_Store', 'no-any.mjs~', 'scratch.mjs']) rmSync(join(repo, RULES_DIR, name));
+  }
+});
+
 test('fails a file in the rules folder that is not a rule, and a rule module that does not load', () => {
   write(`${RULES_DIR}/casts.js`, RULE_SOURCE);
+  write(`${RULES_DIR}/old/casts.mjs`, RULE_SOURCE);
   write(`${RULES_DIR}/named.mjs`, 'export const rule = {};\n');
   write(`${RULES_DIR}/syntax.mjs`, 'export default {\n');
+  symlinkSync('named.mjs', join(repo, RULES_DIR, 'linked.mjs'));
+  write(BASELINE_FILE, '{ "named": 1, "syntax": 2 }\n');
   const { code, problems } = check();
   assert.equal(code, 1);
   assert.deepEqual(problems.map((line) => line.replace(/cannot load: .*/, 'cannot load: <error>')), [
     `${RULES_DIR}/casts.js: only rule files (<name>.mjs) and baseline.json go here`,
+    `${RULES_DIR}/linked.mjs: only rule files (<name>.mjs) and baseline.json go here`,
+    `${RULES_DIR}/old/casts.mjs: only rule files (<name>.mjs) and baseline.json go here`,
     `${RULES_DIR}/named.mjs: needs a default export: the rule object`,
     `${RULES_DIR}/syntax.mjs: cannot load: <error>`,
   ]);

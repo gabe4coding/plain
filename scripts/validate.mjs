@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The validation loop every change goes through before a pull request (skill: .claude/skills/validating-changes,
 // also .agents/skills/ for Codex). It runs the gates in order and stops at the first failure:
-//   1. npm run verify          key-free: build (strict tsc), tests, docs, examples, plugin install smoke
+//   1. npm run verify          key-free: build (strict tsc), tests, docs, source rules, examples, plugin install smoke
 //   2. node scripts/e2e.mjs    live Jev, local site: specs with expected statuses, MCP record and replay
 //   3. claims eval --gate      live Jev, saved pages: false passes must stay 0
 //   4. agent evals             real claude -p and codex exec runs; only when the MCP tools, their results or the
