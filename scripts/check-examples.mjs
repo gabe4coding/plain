@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { literalSecrets } from './example-secrets.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = { browser: 'dist/cli.js', desktop: 'dist/computer/cli.js', mobile: 'dist/mobile/cli.js' };
@@ -31,14 +32,8 @@ function run(engine, args, cwd = root, label = args.at(-1)) {
   return out.stdout;
 }
 
-// `validate` only warns on a literal secret, but a spec here is one a user copies, so it fails. A `fill` step of an
-// `expect-fail` spec types a wrong password on purpose; its `auth` and `env` still hold no literal.
 function checkSecrets(output, textOf, labelOf = (file) => relative(root, file)) {
-  for (const [line, file] of output.matchAll(/^! (.+?): .*literal secret.*$/gm)) {
-    const tags = [].concat(parseYaml(textOf(file))?.tags ?? []);
-    const wrongOnPurpose = tags.includes('expect-fail') && / fills ".*" with a literal secret/.test(line);
-    if (!wrongOnPurpose) problems.push(`${labelOf(file)}: literal secret\n${line}`);
-  }
+  for (const { file, line } of literalSecrets(output, textOf)) problems.push(`${labelOf(file)}: literal secret\n${line}`);
 }
 
 function checkConfig(dir, text, data, label) {

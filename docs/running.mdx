@@ -352,14 +352,18 @@ strings:
 `validate` also gives a warning for a literal credential. A literal credential is a value in the spec file that
 does not come from the environment or a hook:
 
-- A `fill` step with a secret target and a value that is not empty and has no `${...}` placeholder.
+- A `fill` step with a secret target and a value that has text outside its `${...}` placeholders. Thus
+  `hunter2${env.suffix}` gives a warning, and `${env.password}` does not.
 - An `auth` or `env` key with a secret name and a text value without a leading `$`. An empty text does not
   count. In `env`, a number value also counts.
-- A value at any depth below a secret `env` key, also the items of a list.
+- A value at any depth below a secret `env` key.
+- A value in a list, at any depth, below a secret key or with a secret key in a list item. plain does not
+  replace a `$NAME` in a list, so it is also a literal there.
 
-A secret target or key contains `password`, `passwd`, `passcode`, `pin` (as a word), `secret`, `token`,
-`credential` or `apikey`. `api_key` and `api key` also match. A key that ends with `pass` is also secret, for
-example `pass` or `db_pass`. Upper case and lower case letters are the same here.
+A secret target or key contains `password`, `passwd`, `passphrase`, `passcode`, `secret`, `token`, `credential`
+or `apikey`. `api_key` and `api key` also match. Upper case and lower case letters are the same here. `pin` is
+also secret as a word or as a part of a name, for example `PIN`, `user_pin` or `pinCode`, but not in `spinner`.
+A key that ends with `pass` is also secret, for example `pass` or `db_pass`.
 
 To remove the warning, put a `$VAR` value in `env` and use it in the step as `${env.*}`. See
 [values from the environment](spec-reference.mdx#values-from-the-environment).

@@ -87,3 +87,27 @@ test('cli.js: validate warns on a literal auth pass and names the flow of an inc
   assert.match(warned.stdout, new RegExp(`^! ${spec}: .*flows.sign-in\\.yaml: step 0 fills "the PIN field" with a literal secret`, 'm'));
   assert.doesNotMatch(warned.stdout, /auth\.user/);
 });
+
+test('cli.js: validate warns on literal text next to a placeholder, in list items and on pin names, not on spinner', () => {
+  const spec = 'edges-literal.yaml';
+  fs.writeFileSync(path.join(dir, spec), [
+    'name: Edges', 'url: https://example.com', 'env:',
+    '  accounts: [{user: tom, password: hunter2}]', '  passwords: [{a: hunter2}]',
+    '  user_pin: 1234', '  pinCode: "0000"', '  passphrase: open sesame',
+    '  spinner: fast', '  pinned: yes', '  opinion: good', '  pin_code: $PLAIN_TEST_UNSET_PASSWORD',
+    'steps:', '  - goto: /',
+    `  - fill: { target: the Password field, value: 'hunter2\${env.spinner}' }`,
+    `  - fill: { target: the Password field, value: '\${env.passphrase}' }`,
+    '  - fill: { target: the spinner speed field, value: fast }',
+    '  - fill: { target: the userPin field, value: "42" }', '',
+  ].join('\n'));
+  const warned = run('cli.js', ['validate', spec]);
+  assert.equal(warned.status, 0, warned.stderr);
+  for (const field of ['env.accounts.0.password', 'env.passwords.0.a', 'env.user_pin', 'env.pinCode', 'env.passphrase']) {
+    assert.match(warned.stdout, new RegExp(`"${field.replaceAll('.', '\\.')}" holds a literal secret`), warned.stdout);
+  }
+  assert.match(warned.stdout, /step 1 fills "the Password field" with a literal secret/);
+  assert.match(warned.stdout, /step 4 fills "the userPin field" with a literal secret/);
+  assert.equal(warned.stdout.match(/literal secret/g)?.length, 7, warned.stdout);
+  assert.doesNotMatch(warned.stdout, /(spinner|pinned|opinion|accounts\.0\.user|pin_code)" holds|step [23] fills/);
+});

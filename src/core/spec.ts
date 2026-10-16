@@ -82,10 +82,13 @@ export interface LoadOptions {
   onLiteralSecret?: (message: string) => void;
 }
 
+const SECRET_WORD = /passw(or)?d|passphrase|passcode|secret|token|api.?key|credential/i;
+/** `pin` as a word or a name part (`PIN`, `user_pin`, `pinCode`, `userPin`), never inside a word (`spinner`, `opinion`). */
+const PIN = /(?:^|[^A-Za-z])[Pp][Ii][Nn](?![a-z])|[a-z]Pin(?![a-z])/;
 /** A fill target that names a credential. */
-const SECRET_TARGET = /passw(or)?d|passcode|\bpin\b|secret|token|api.?key|credential/i;
+const isSecretTarget = (text: string) => SECRET_WORD.test(text) || PIN.test(text);
 /** An `auth`/`env` key that names a credential: also `pass`, `db_pass`, `userPass`. */
-const SECRET_KEY = new RegExp(`${SECRET_TARGET.source}|pass$`, 'i');
+const isSecretKey = (key: string) => isSecretTarget(key) || /pass$/i.test(key);
 
 /**
  * Loads a browser spec file. Every schema is strict: an unknown key (top level, `auth`, `geolocation`, `browser`,
@@ -134,12 +137,12 @@ function loadSteps<S extends { kind: string }>(rawSteps: unknown[], file: string
   });
 }
 
-/** A `${...}` value comes from the env block or a hook. Any other value is typed as written in the spec. */
+/** A `${...}` part comes from the env block or a hook. Any text around it is typed as written in the spec. */
 function checkFillSecret(step: { kind: string }, where: string, opts?: LoadOptions): void {
   if (step.kind !== StepKind.fill || !('target' in step && 'value' in step)) return;
   const { target, value } = step;
-  if (typeof target !== 'string' || typeof value !== 'string' || !value || value.includes('${')) return;
-  if (SECRET_TARGET.test(target)) {
+  if (typeof target !== 'string' || typeof value !== 'string' || !value.replace(/\$\{[^}]*\}/g, '').trim()) return;
+  if (isSecretTarget(target)) {
     opts?.onLiteralSecret?.(`${where} fills "${target}" with a literal secret (use \${env.*} and a $VAR in the env block)`);
   }
 }
@@ -245,12 +248,9 @@ function resolveEnvBlock(path: string, field: string, raw: Record<string, unknow
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
     const childField = `${field}.${key}`;
-    const childSecret = secret || SECRET_KEY.test(key);
-    // A `$NAME` inside a list stays text, so every item of a secret list is literal.
-    const literal = Array.isArray(value) ? value.some(isLiteral) : isLiteral(value) && !String(value).startsWith('$');
-    if (childSecret && literal) {
-      opts?.onLiteralSecret?.(`${path}: "${childField}" holds a literal secret (use a $VAR value to read it from the environment)`);
-    }
+    const childSecret = secret || isSecretKey(key);
+    if (Array.isArray(value)) checkListSecrets(path, childField, value, childSecret, opts);
+    else if (childSecret && isLiteral(value) && !String(value).startsWith('$')) warnLiteralSecret(path, childField, opts);
     if (typeof value === 'string') resolved[key] = resolveEnvRef(path, childField, value, opts);
     else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       resolved[key] = resolveEnvBlock(path, childField, value as Record<string, unknown>, opts, childSecret);
@@ -259,7 +259,19 @@ function resolveEnvBlock(path: string, field: string, raw: Record<string, unknow
   return resolved;
 }
 
+/** A `$NAME` inside a list stays text, so every secret value at any depth of a list is literal. */
+function checkListSecrets(path: string, field: string, value: unknown, secret: boolean, opts?: LoadOptions): void {
+  if (Array.isArray(value)) value.forEach((item, i) => checkListSecrets(path, `${field}.${i}`, item, secret, opts));
+  else if (value !== null && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) checkListSecrets(path, `${field}.${key}`, child, secret || isSecretKey(key), opts);
+  } else if (secret && isLiteral(value)) warnLiteralSecret(path, field, opts);
+}
+
 const isLiteral = (value: unknown): boolean => typeof value === 'number' || (typeof value === 'string' && value !== '');
+
+function warnLiteralSecret(path: string, field: string, opts?: LoadOptions): void {
+  opts?.onLiteralSecret?.(`${path}: "${field}" holds a literal secret (use a $VAR value to read it from the environment)`);
+}
 
 function resolveEnvRef(path: string, field: string, value: string, opts?: LoadOptions): string {
   if (!value.startsWith('$')) return value;
