@@ -4,7 +4,8 @@ import { AppiumAdapter, DEFAULT_APPIUM_URL } from './adapter.js';
 import { MobileSession, runMobileSpec } from './session.js';
 import { loadMobileSpec } from './spec.js';
 
-const appiumUrl = (values: Record<string, string | undefined>) => values.server ?? process.env.PLAIN_APPIUM_URL ?? DEFAULT_APPIUM_URL;
+/** `server` already falls back to PLAIN_APPIUM_URL (src/suite/options.ts). */
+const appiumUrl = (values: Record<string, string | undefined>) => values.server ?? DEFAULT_APPIUM_URL;
 
 await nativeCli('plain-mobile', '[--server http://127.0.0.1:4723] ', 'mobile', {
   serve: async (timeout, values) => (await import('./mcp.js')).serveMobileMcp(timeout, appiumUrl(values)), // the MCP SDK loads only when serving
