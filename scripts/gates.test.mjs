@@ -2,13 +2,16 @@
 // marked `optional`, a skipped or focused test, a removed `expect-fail` tag, spec or eval case, or a moved Jev
 // decision threshold all keep every other check green. Each floor is the exact count: a change that adds a spec or
 // case raises its floor, so that a later removal fails; a change that removes one lowers it and says why.
-// The threshold check reads dist/, so it needs a build first (`npm test` builds).
+// The threshold and include checks read dist/, so they need a build first (`npm test` builds).
+// The skip scan reads the source, so it does not see a skip or todo whose options sit in a variable (unless set to
+// true), a call as `t[name]()` with a variable name, or options with a nested `}` before the key.
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseAllDocuments } from 'yaml';
+import { expandIncludes } from '../dist/core/include.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SELF = 'scripts/gates.test.mjs';
@@ -26,7 +29,7 @@ const FLOORS = {
 
 // Files that may skip, with the hit count and the line that limits the skip to a platform the test cannot run on.
 const ALLOWED_SKIPS = {
-  'scripts/plugin-npx.test.mjs': { hits: 2, platform: /^const skip = process\.platform === 'win32' \? /m },
+  'scripts/plugin-npx.test.mjs': { hits: 2, platform: /^const skip = process\.platform === 'win32' \? '[^']*' : false;$/m },
 };
 
 const RULE = "CODING_STANDARDS.md 'Tests': never weaken a gate.";
@@ -41,7 +44,7 @@ const specDocs = (path) => parseAllDocuments(read(path)).map((doc) => doc.toJS()
 function cases(path) {
   const data = JSON.parse(read(path));
   const list = Array.isArray(data) ? data : data?.cases;
-  assert.ok(Array.isArray(list), `${path}: no case array (the file or its "cases" key); fix the floor count in ${SELF}`);
+  assert.ok(Array.isArray(list), `${path}: no case array (the file or its "cases" key); update cases() in ${SELF} to the new shape`);
   return list;
 }
 
@@ -55,11 +58,12 @@ function optionalKeys(value, path = '') {
   });
 }
 
-// A skip, only or todo as a method call (on test, it, describe or the test context t), as a key in the options
-// object of a test, it, describe or suite call (also when the options sit on the next lines), or set to true.
-const CALL = /\.(?:skip|only|todo)\s*\(/g;
+// A skip, only or todo as a method call (on test, it, describe or the test context t; also `?.` and `['skip']`), as
+// a key in the options object of a test, it, describe or suite call (also when the options sit on the next lines)
+// unless set to false, or set to true anywhere.
+const CALL = /(?:\.|\?\.|\[\s*['"`])(?:skip|only|todo)(?:['"`]\s*\])?\s*(?:\?\.)?\s*\(/g;
 const NAME = /(['"`])(?:\\.|(?!\1)[^\\])*\1/.source;
-const OPTION = new RegExp(`\\b(?:test|it|describe|suite)\\s*\\(\\s*${NAME}\\s*,\\s*\\{[^}]*?\\b(?:skip|only|todo)\\b`, 'g');
+const OPTION = new RegExp(`\\b(?:test|it|describe|suite)\\s*\\(\\s*${NAME}\\s*,\\s*\\{[^}]*?\\b(?:skip|only|todo)\\b(?!\\s*:\\s*false\\b)`, 'g');
 const SET_TRUE = /\b(?:skip|only|todo)\s*:\s*true\b/g;
 
 /** The `line: text` of each skip, only or todo in a test file's source, at the line of the word. */
@@ -90,15 +94,21 @@ test('the skip detector finds calls, options and true flags, also on the next li
     '}, () => {});',
     "test('e', async (t) => { t.sk@ip('later'); });",
     "const options = { on@ly: true };",
-    "test('g', () => { applies({ ...RULE, skip: /x/ }); });",
+    "test('g', (t) => { t.sk@ip?.(); t['to@do']('x'); });",
+    "test('h', () => { applies({ ...RULE, skip: /x/ }); });",
     "const filter = { only: ['a'], skip };",
+    "test('j', { skip: false, only: false }, () => {});",
   ].join('\n').replaceAll('@', '');
-  assert.deepEqual(skipHits(source).map((hit) => Number(hit.split(':')[0])), [1, 2, 3, 5, 7, 8]);
+  assert.deepEqual(skipHits(source).map((hit) => Number(hit.split(':')[0])), [1, 2, 3, 5, 7, 8, 9]);
 });
 
-test('no e2e step is optional', () => {
-  const hits = e2eSpecs().flatMap((path) => specDocs(path).flatMap((doc) => optionalKeys(doc))
-    .map((at) => `${path}: ${at}`));
+test('no e2e step is optional, also in an included flow', () => {
+  const hits = e2eSpecs().flatMap((path) => specDocs(path).flatMap((doc) => {
+    const steps = Array.isArray(doc?.steps) ? expandIncludes(doc.steps, join(root, path)) : [];
+    const stepHits = steps.flatMap((step, i) => optionalKeys(step, `steps[${i}]`)
+      .map((at) => (step?.origin ? `${at} (from ${step.origin})` : at)));
+    return [...optionalKeys({ ...doc, steps: undefined }), ...stepHits].map((at) => `${path}: ${at}`);
+  }));
   assert.deepEqual(hits, [], weaker(`optional e2e step: ${hits.join(', ')}`,
     'an e2e step must pass; fix the step, the page or the product.'));
 });
