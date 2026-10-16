@@ -29,10 +29,11 @@ type ChildReply = { type: string; ok?: boolean; data?: Record<string, unknown>; 
 /**
  * Imports and checks a hooks module in its own child process (src/core/hooks-child.ts), one per spec run: module
  * state never leaks between specs, and concurrent specs never share a module instance. One request is in
- * flight at a time, so the child's next message is always the reply.
+ * flight at a time, so the child's next message is always the reply. The child's stdout is this process's stderr
+ * and its stdin is closed: stdout carries the MCP messages and the jsonl report, and stdin the MCP requests.
  */
 export async function startHooks<S extends HookSpec = Spec>(file: string): Promise<HooksRunner<S>> {
-  const child: ChildProcess = fork(fileURLToPath(new URL('./hooks-child.js', import.meta.url)), [file]);
+  const child: ChildProcess = fork(fileURLToPath(new URL('./hooks-child.js', import.meta.url)), [file], { stdio: ['ignore', 2, 2, 'ipc'] });
 
   let pending: { resolve: (reply: ChildReply) => void; reject: (error: Error) => void } | null = null;
   const settle = (fn: (waiting: NonNullable<typeof pending>) => void) => {
