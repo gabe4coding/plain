@@ -1,7 +1,8 @@
-import { formatMs, isFailure, type StepResult } from '../../core/results.js';
+import { formatMs, isFailure, type Status, type StepResult } from '../../core/results.js';
 import type { RunObserver, SpecReport } from '../types.js';
 
-const icon = (status: string): string => ({ pass: '✔', inconclusive: '?', skipped: '»' })[status] ?? '✘';
+const ICONS = { pass: '✔', fail: '✘', inconclusive: '?', error: '✘', skipped: '»' } satisfies Record<Status, string>;
+const icon = (status: Status): string => ICONS[status];
 export const stepLine = (step: StepResult): string =>
   `  ${icon(step.status)} ${step.step}${step.detail ? ' ' + step.detail : ''}`;
 /** A stored error is `${error}` (the native CLIs reprint it); the text reporter shows only its message. */

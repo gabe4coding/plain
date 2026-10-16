@@ -245,6 +245,31 @@ test('save before any open is an error and leaves an existing spec and its lock 
   }
 });
 
+test('teardown gets the status of a failed step when a passing step follows it', async () => {
+  // Its own server: the shared one already holds the steps of earlier tests.
+  const own = await startServer('plain-test-teardown-status');
+  const ownCall = async (name: string, args: Record<string, unknown>) =>
+    ((await own.callTool({ name, arguments: args })) as { structuredContent: Record<string, unknown> }).structuredContent;
+  try {
+    const out = join(scratch, 'teardown-status.txt');
+    const hooks = join(scratch, 'status-hooks.mjs');
+    writeFileSync(hooks, `import { appendFileSync } from 'node:fs';
+export function teardown({ result }) { appendFileSync(${JSON.stringify(out)}, result.status + '\\n'); }`);
+    await ownCall('open', { hooks, url: html('<input id="name"><button disabled>Unavailable</button>') });
+    assert.equal((await ownCall('step', { step: { click: 'css=button' } })).status, 'error');
+    assert.equal((await ownCall('step', { step: { fill: { target: 'css=#name', value: 'next' } } })).status, 'pass');
+    // A second `open {hooks}` releases the first lease: its teardown ends before the call returns.
+    await ownCall('open', { hooks, url: html('<input id="name">') });
+    assert.equal(readFileSync(out, 'utf8'), 'error\n');
+    // Each lease gets only its own steps: the first flow's failure does not fail the second.
+    assert.equal((await ownCall('step', { step: { fill: { target: 'css=#name', value: 'again' } } })).status, 'pass');
+    await ownCall('open', { hooks, url: html('<p>third flow</p>') });
+    assert.equal(readFileSync(out, 'utf8'), 'error\npass\n');
+  } finally {
+    await own.close();
+  }
+});
+
 test('step results carry what the action changed; open keeps a goal that save writes', async () => {
   const page = 'data:text/html,' + encodeURIComponent(`<!doctype html><title>Menu</title><button onclick="document.body.insertAdjacentHTML('beforeend','<p>Saved: 3 items</p>')">Save</button>`);
   await call('open', { url: page, goal: 'save the list' });

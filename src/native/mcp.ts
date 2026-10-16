@@ -9,7 +9,7 @@ import { interpolate } from '../core/interpolate.js';
 import { parametersOf } from '../core/parameters.js';
 import { snapshotView, SnapshotOptions, SNAPSHOT_MODES_DESCRIPTION } from '../core/snapshot-view.js';
 import { startHooks, placeholderPaths, type HooksRunner, type HookSpec } from '../core/hooks.js';
-import { isFailure, type StepResult, type Status } from '../core/results.js';
+import { overallStatus, type StepResult } from '../core/results.js';
 import { serialQueue } from '../core/serial-queue.js';
 import { jsonResult as ok, askResult, AskClaims, ASK_DESCRIPTION } from '../core/mcp-result.js';
 import { ariaChanges, CHANGES_ENABLED, CHANGES_NOTE, type AriaChanges } from '../core/aria-changes.js';
@@ -59,7 +59,6 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
   let hooks: HooksRunner<S> | undefined;
   let data: Record<string, unknown> = {};
   let results: StepResult[] = [];
-  let overall: Status = 'pass';
   /** The screen the last step's `changed` ended on. */
   let lastScreen: Snapshot | null = null;
 
@@ -72,7 +71,7 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
   async function close() {
     opened = false;
     try {
-      if (hooks?.has.teardown) await hooks.teardown({ spec, data, result: { status: overall, steps: results } });
+      if (hooks?.has.teardown) await hooks.teardown({ spec, data, result: { status: overallStatus(results), steps: results } });
     } finally {
       hooks?.close();
       hooks = undefined;
@@ -93,7 +92,6 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
       session.lock = recorder;
       secrets = new SecretNames();
       results = [];
-      overall = 'pass';
       spec = next;
       session.goal = next.goal;
       let setupDone = false;
@@ -107,7 +105,6 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
         opened = true;
         return ok({ ...app, placeholders: placeholderPaths(data) });
       } catch (error) {
-        overall = 'error';
         results.push({ step: setupDone ? 'open' : 'setup', status: 'error', detail: String(error) });
         if (!setupDone) {
           hooks?.close();
@@ -158,7 +155,6 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
     const result = await session.run({ ...withPlaceholders(parsed), at: { file: '', index: transcript.length } } as typeof parsed);
     recorder.endStep(result);
     results.push(result);
-    if (isFailure(result.status)) overall = result.status;
     if (result.status === 'pass') transcript.push(await asSaved(step, parsed as { kind: string; value?: string }));
     const changed = CHANGES_ENABLED ? await changesSince(ownBaseline ?? session.firstSnapshot ?? lastScreen) : {};
     return ok({ ...result, jevTokens: session.tokens - tokensBefore, ...changed });

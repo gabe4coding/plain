@@ -12,6 +12,14 @@ export type Status = z.infer<typeof StatusSchema>;
 /** Every status but pass and skipped: it stops a run and fails the spec. */
 export const isFailure = (status: Status): boolean => status !== 'pass' && status !== 'skipped';
 
+/**
+ * The status hooks teardown gets, from the step results so far: the first failure, as a spec run stops there;
+ * `pass` when no step failed, also when no step ran. In agent mode steps go on after a failure, and a later pass
+ * must not hide it.
+ */
+export const overallStatus = (results: readonly { status: Status }[]): Status =>
+  results.find((result) => isFailure(result.status))?.status ?? 'pass';
+
 /** Where rejected picks and failed claims are dumped; the artifacts observer copies from here. */
 export const DUMP_DIR = path.join(os.tmpdir(), 'plain');
 

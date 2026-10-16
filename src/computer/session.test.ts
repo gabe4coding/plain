@@ -190,6 +190,29 @@ test('real MCP protocol records successful placeholder steps, saves replayable Y
     assert.ok((await client.callTool({ name: 'snapshot', arguments: {} })).isError);
   } finally { await close(); await client.close(); await server.close(); rmSync(dir, { recursive: true, force: true }); }
 });
+test('MCP teardown gets the status of a failed step when a passing step follows it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'computer-teardown-'));
+  const { server, close } = createComputerServer(new FakeAdapter(), 100, ai);
+  const client = new Client({ name: 'test', version: '1' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a); await client.connect(b);
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const r = await client.callTool({ name, arguments: args });
+    assert.ok(!r.isError, JSON.stringify(r));
+    return r.structuredContent as Record<string, unknown>;
+  };
+  try {
+    const out = join(dir, 'teardown-status.txt');
+    const hook = join(dir, 'hooks.mjs');
+    writeFileSync(hook, `import { appendFileSync } from 'node:fs';
+export function teardown({ result }) { appendFileSync(${JSON.stringify(out)}, result.status + '\\n'); }`);
+    await call('open', { pid: 42, hooks: hook });
+    assert.equal((await call('step', { step: { press: 'bad' } })).status, 'error');
+    assert.equal((await call('step', { step: { press: 'Enter' } })).status, 'pass');
+    await call('close');
+    assert.equal(readFileSync(out, 'utf8'), 'error\n');
+  } finally { await close(); await client.close(); await server.close(); rmSync(dir, { recursive: true, force: true }); }
+});
 test('save writes a value typed into a secure text field as ${env.password}, and the saved spec replays it from the env', async () => {
   class SecureAdapter extends FakeAdapter {
     secureField = false;
