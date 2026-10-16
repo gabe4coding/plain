@@ -3,6 +3,7 @@ import {
   parseStep, rejectCss, rejectUnknownKeys, loadNativeSpec, stepKind, STEP_KINDS, TagsSchema, type LoadOptions, type Step, type StepSource,
 } from '../core/spec.js';
 import { label } from '../core/results.js';
+import { DIRECTIONS, requireScroll, type Scroll } from '../core/direction.js';
 
 const nonEmptyText = z.string().trim().min(1);
 
@@ -16,8 +17,16 @@ export const MobileTargetSchema = z.object({
 }).strict();
 export type MobileTarget = z.infer<typeof MobileTargetSchema>;
 
-const DirectionSchema = z.enum(['up', 'down', 'left', 'right']);
-export type Direction = z.infer<typeof DirectionSchema>;
+/**
+ * The directions of both mobile gestures (one `Direction` in the adapter): a scroll direction names where the
+ * content moves, a swipe direction where the finger moves.
+ */
+const MOBILE_DIRECTIONS = DIRECTIONS;
+export type Direction = (typeof MOBILE_DIRECTIONS)[number];
+const DirectionSchema = z.enum(MOBILE_DIRECTIONS);
+
+/** The direction and the target of a mobile `scroll` step's value. */
+export const mobileScroll = (text: string): Scroll<Direction> => requireScroll(text, MOBILE_DIRECTIONS, 'Mobile');
 
 type SharedMobileStep = Extract<Step, { kind: 'click' | 'fill' | 'dblclick' | 'check' | 'uncheck' | 'scroll' | 'press' | 'wait' | 'expect' }>;
 type LoaderFields = { optional?: boolean; origin?: string; at?: StepSource };
@@ -59,9 +68,7 @@ export function loadMobileSpec(file: string, opts?: LoadOptions): MobileSpec {
 export function validateMobileStep(step: MobileStep, allowPlaceholders = false): MobileStep {
   rejectCss(step, 'mobile');
   const templated = (value: string) => allowPlaceholders && value.includes('${');
-  if (step.kind === 'scroll' && !templated(step.target) && !/^(up|down|left|right):\s*\S/.test(step.target)) {
-    throw new Error('Mobile scroll syntax: "down: the results list" (up, left and right also supported)');
-  }
+  if (step.kind === 'scroll' && !templated(step.target)) mobileScroll(step.target);
   if (step.kind === 'press' && !templated(step.key) && !KEYS.includes(step.key)) {
     throw new Error('Mobile press supports Back (Android only), Home, Enter (Android only), or HideKeyboard');
   }

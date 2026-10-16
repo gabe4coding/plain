@@ -3,12 +3,10 @@ import type { StepResult } from '../core/results.js';
 import { NativeSession } from '../native/session.js';
 import { runNativeSpec } from '../native/run-spec.js';
 import type { SessionObserver, SpecInfo } from '../core/run-contract.js';
-import { parseMobileStep, validateMobileStep, mobileLabel, type MobileStep, type MobileSpec, type Direction } from './spec.js';
+import { parseMobileStep, validateMobileStep, mobileLabel, mobileScroll, type MobileStep, type MobileSpec } from './spec.js';
 import { HiddenTargetError } from '../core/automation.js';
 import type { MobileAdapter, MobileAction } from './adapter.js';
 import type { MobileKind } from './tree.js';
-
-const SCROLL_DIRECTION = /^(up|down|left|right):\s*/;
 
 /** The candidates a mobile step picks from. */
 function candidateKind(kind: MobileStep['kind']): MobileKind {
@@ -40,7 +38,8 @@ export class MobileSession<T = unknown> extends NativeSession<T, MobileKind, Mob
     }
     if (step.kind === 'expect' || step.kind === 'wait') return { step: stepLabel, status: 'pass' };
 
-    const target = step.kind === 'scroll' ? step.target.replace(SCROLL_DIRECTION, '') : step.target;
+    const scroll = step.kind === 'scroll' ? mobileScroll(step.target) : undefined;
+    const target = scroll?.target ?? step.target;
     // An approximate capture also lists covered elements. That lowers Jev's confidence but not its choice, so its
     // pick is used when accepted and visible; a rejected or covered pick is picked again from an exact capture.
     for (let retargeted = false; ; retargeted = true) {
@@ -53,9 +52,8 @@ export class MobileSession<T = unknown> extends NativeSession<T, MobileKind, Mob
       const element = resolved.element;
       this.noteFill(step, element);
       try {
-        if (step.kind === 'scroll') {
-          const direction = step.target.split(':')[0] as Direction;
-          await this.timed('act', () => this.adapter.gesture('scroll', direction, element));
+        if (scroll) {
+          await this.timed('act', () => this.adapter.gesture('scroll', scroll.direction, element));
         } else {
           const value = step.kind === 'fill' ? step.value : undefined;
           await this.timed('act', () => this.adapter.act(step.kind as MobileAction, element, value));

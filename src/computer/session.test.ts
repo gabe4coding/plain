@@ -25,6 +25,7 @@ class FakeAdapter implements ComputerAdapter<string> {
   async press(key: string) { this.log.push(['press', key]); if (key === 'bad') throw new Error('input failed'); }
   async mouse(x: number, y: number) { this.log.push(['mouse', x, y]); }
   async drag(...args: unknown[]) { this.log.push(['drag', ...args]); }
+  async scroll(...args: unknown[]) { this.log.push(['scroll', ...args]); }
   async screenshot() { return Buffer.from('png'); }
   async close() { this.closed++; }
 }
@@ -38,6 +39,21 @@ test('desktop schema accepts shared steps and rejects browser-only vocabulary be
   assert.equal(parseComputerStep({ scroll: 'down: the list' }).kind, 'scroll');
   assert.throws(() => ComputerTargetSchema.parse({ app: 'A', pid: 1 }));
   assert.throws(() => ComputerTargetSchema.parse({}));
+});
+test('desktop scroll goes up, down, left and right: Jev picks the target without its direction, the wheel moves that way', async () => {
+  const adapter = new FakeAdapter();
+  const picked: string[] = [];
+  const session = new ComputerSession(adapter, 100, { ...ai, pick: async (...args) => { picked.push(...args[1]); return ai.pick(...args); } });
+  // xa11y wheel deltas in lines: dx > 0 scrolls right, dy > 0 scrolls the content down.
+  const wheel = { left: [-3, 0], right: [3, 0], up: [0, -3], down: [0, 3] };
+  for (const [direction, [dx, dy]] of Object.entries(wheel)) {
+    assert.equal(parseComputerStep({ scroll: `${direction}: the list` }).kind, 'scroll');
+    const result = await session.step({ scroll: `${direction}: the list` });
+    assert.equal(result.status, 'pass', result.detail);
+    assert.deepEqual(adapter.log.at(-1), ['scroll', 'control', dx, dy]);
+  }
+  assert.deepEqual(picked, ['the list', 'the list', 'the list', 'the list']);
+  for (const raw of [{ scroll: 'sideways: the list' }, { scroll: 'left:' }, { scroll: 'Left: the list' }]) assert.throws(() => parseComputerStep(raw), /Desktop scroll syntax/);
 });
 test('desktop filters respect editable, disabled, hidden and checked controls', () => {
   const el = { visible: true, enabled: true, editable: true, checked: null, actions: [], focusable: true, role: 'text_field' };

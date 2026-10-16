@@ -55,3 +55,19 @@ A second session added five more (57 in all): 93.0% before, then
 
 Known failures: "Click Rock and Roll in the genre list" targets "the genre list"; "Enter in the text
 field search a flight to Rome…" leaves "search" out of the text (ambiguous for a person too).
+
+## Scroll left and right, 2026-10-16
+
+`plain-computer do` rejected a planned `scroll: "left: …"` or `"right: …"`: the desktop parser took only `up` and
+`down`. The desktop now scrolls in all four directions, and the planner builds its scroll step from the same
+direction list. Its Jev requests did not change: for every case, with first-option and with scroll answers in
+each direction, main and the branch send identical requests and give identical plans (354/354).
+Two cases were added (59 in all): "Scroll right in the timeline" and "scroll the photo strip to the left".
+
+| Run, 3 runs each, jev-1.13.0 | Pass rate |
+|---|---|
+| main | 96.6% (171/177), median 3,557 tokens per sentence |
+| branch | 96.0% (170/177), median 3,557 tokens per sentence |
+
+The one difference is Jev variance: "Press the OK button" was `unknown` ("not sure what to do") in 1 of 3 runs
+on the branch. Both new cases passed 3/3 on both.
