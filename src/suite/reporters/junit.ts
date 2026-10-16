@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { Attempt, RunObserver, RunReport, SpecReport } from '../types.js';
 import { writeReport } from './file.js';
 import { stepLine } from './text.js';
-import { isFailure } from '../../core/results.js';
+import { isFailure, type Status } from '../../core/results.js';
 
 /** XML 1.0 allows tabs/newlines, printable BMP characters, and valid supplementary code points. */
 export function escapeXml(value: string): string {
@@ -68,7 +68,7 @@ function testCase(spec: SpecReport, report: RunReport): string {
 }
 
 export function junitXml(report: RunReport): string {
-  const countOf = (...statuses: string[]) => report.specs.filter((spec) => statuses.includes(spec.status)).length;
+  const countOf = (...statuses: Status[]) => report.specs.filter((spec) => statuses.includes(spec.status)).length;
   const counts = `tests="${report.specs.length}" failures="${countOf('fail', 'inconclusive')}" errors="${countOf('error')}" ` +
     `skipped="${countOf('skipped')}" time="${seconds(report.durationMs)}"`;
   return [

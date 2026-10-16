@@ -7,7 +7,7 @@ import { parseStep, type Spec, type Step } from '../core/spec.js';
 import { interpolate } from '../core/interpolate.js';
 import { parametersOf } from '../core/parameters.js';
 import { startHooks, placeholderPaths, type HooksRunner } from '../core/hooks.js';
-import type { StepResult } from '../core/results.js';
+import { overallStatus, type StepResult } from '../core/results.js';
 import { LockStore } from '../core/lock.js';
 import { SecretNames, writeSaved } from '../core/save.js';
 import type { Snapshot } from '../core/automation.js';
@@ -124,7 +124,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
    * file, so the saved spec replays in no-judge at once (src/core/lock.ts).
    */
   const recorder = new LockStore('judge').attempt();
-  /** Every step result, pass or not: what teardown sees. */
+  /** Every step result since the hooks lease began, pass or not: what teardown sees. */
   const results: StepResult[] = [];
   let totalTokens = 0;
   const track = (tokens: number): void => void (totalTokens += tokens);
@@ -148,7 +148,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
   /** Releases the hooks lease. A teardown error propagates: a failing cleanup must not be silent. */
   async function runTeardown(): Promise<void> {
     const runner = hooksRunner;
-    if (runner?.has.teardown) await runner.teardown({ spec, data, result: { status: results.at(-1)?.status ?? 'pass', steps: results } });
+    if (runner?.has.teardown) await runner.teardown({ spec, data, result: { status: overallStatus(results), steps: results } });
     runner?.close();
     hooksRunner = null;
     hooksFile = null;
@@ -158,6 +158,7 @@ export async function serveMcp(opts: RunOptions): Promise<void> {
   async function loadHooks(hooksPath: string): Promise<void> {
     const file = resolve(spec.dir, hooksPath);
     if (hooksFile) await runTeardown(); // a second flow releases the first lease
+    results.length = 0; // an earlier flow's failure is not this lease's status
     let runner: HooksRunner | null = null;
     try {
       runner = await startHooks(file);
