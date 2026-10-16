@@ -1,7 +1,11 @@
 // stdout is the MCP JSON-RPC channel in agent mode and the jsonl report in a run: one stray line corrupts it, and
 // MCP hosts drop it with no error. Only the reporters and the CLI commands that print a result write to stdout. A
 // child process can write to it too: a fork inherits stdout unless it gets `stdio` or `silent` on the same line, and
-// a spawn inherits it with `'inherit'` or fd 1 as its stdout.
+// a spawn inherits it with `'inherit'` or fd 1 as its stdout. The rule reads one line at a time, so these pass it:
+// an alias (`const log = console.log`, `const { log } = console`, `const { stdout } = process` or `node:process`), a
+// write to fd 1 (`fs.writeSync(1, ...)`, `/dev/stdout`), a `stdio` array on more than one line, and the dependencies.
+const STDOUT_METHOD = 'log|info|debug|dir|dirxml|table|group|groupCollapsed|count|timeLog|timeEnd';
+
 export default {
   name: 'stdout',
   files: /^(src|bin)\/.*\.[cm]?[jt]s$/,
@@ -13,7 +17,8 @@ export default {
     'src/computer/cli.ts', // plan and do
   ],
   pattern: new RegExp([
-    /\bconsole\.(log|info|debug|dir|dirxml|table|group|groupCollapsed|count|timeLog|timeEnd)\(/,
+    // console.log(, console.log (, console?.log(, console.info?.(, console['log'](
+    new RegExp(`\\bconsole\\s*(\\??\\.\\s*(${STDOUT_METHOD})\\b|\\[\\s*['"\`](${STDOUT_METHOD})['"\`]\\s*\\])\\s*(\\?\\.)?\\s*\\(`),
     /\bprocess\.stdout\b(?!\.(isTTY|columns|rows)\b)/,
     /\bfork\((?!.*\b(stdio|silent)\b)/,
     /\bstdio:\s*(['"]inherit['"]|\[\s*[^,\]]+,\s*(['"]inherit['"]|1\b))/,
@@ -25,6 +30,11 @@ export default {
       "console.log('opened', app);",
       'console.info(`setup done`);',
       'console.debug(state);',
+      "console.log ('opened');",
+      "console?.log('opened');",
+      'console.info?.(state);',
+      "console['log']('opened');",
+      'console[`table`](rows);',
       "process.stdout.write(line + '\\n');",
       'child.stdout.pipe(process.stdout);',
       'const child = fork(path, [file]);',
@@ -36,6 +46,8 @@ export default {
     miss: [
       "console.error('opened', app);",
       "console.warn('deprecated');",
+      "console['error']('opened');",
+      'console?.error?.(state);',
       "process.stderr.write(line + '\\n');",
       'if (process.stdout.isTTY) color = true;',
       "const child = fork(path, [file], { stdio: ['ignore', 2, 2, 'ipc'] });",
