@@ -249,8 +249,10 @@ function resolveEnvBlock(path: string, field: string, raw: Record<string, unknow
   for (const [key, value] of Object.entries(raw)) {
     const childField = `${field}.${key}`;
     const childSecret = secret || isSecretKey(key);
-    if (Array.isArray(value)) checkListSecrets(path, childField, value, childSecret, opts);
-    else if (childSecret && isLiteral(value) && !String(value).startsWith('$')) warnLiteralSecret(path, childField, opts);
+    if (Array.isArray(value) && opts?.onLiteralSecret) checkListSecrets(path, childField, value, childSecret, opts.onLiteralSecret);
+    else if (childSecret && isLiteral(value) && !String(value).startsWith('$')) {
+      opts?.onLiteralSecret?.(literalSecretMessage(path, childField));
+    }
     if (typeof value === 'string') resolved[key] = resolveEnvRef(path, childField, value, opts);
     else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       resolved[key] = resolveEnvBlock(path, childField, value as Record<string, unknown>, opts, childSecret);
@@ -259,19 +261,28 @@ function resolveEnvBlock(path: string, field: string, raw: Record<string, unknow
   return resolved;
 }
 
-/** A `$NAME` inside a list stays text, so every secret value at any depth of a list is literal. */
-function checkListSecrets(path: string, field: string, value: unknown, secret: boolean, opts?: LoadOptions): void {
-  if (Array.isArray(value)) value.forEach((item, i) => checkListSecrets(path, `${field}.${i}`, item, secret, opts));
+/**
+ * A `$NAME` inside a list stays text, so every secret value at any depth of a list is literal. `seen`: a YAML alias
+ * can make a list contain itself.
+ */
+function checkListSecrets(path: string, field: string, value: unknown, secret: boolean, warn: (message: string) => void,
+  seen = new Set<object>()): void {
+  if (value !== null && typeof value === 'object') {
+    if (seen.has(value)) return;
+    seen.add(value);
+  }
+  if (Array.isArray(value)) value.forEach((item, i) => checkListSecrets(path, `${field}.${i}`, item, secret, warn, seen));
   else if (value !== null && typeof value === 'object') {
-    for (const [key, child] of Object.entries(value)) checkListSecrets(path, `${field}.${key}`, child, secret || isSecretKey(key), opts);
-  } else if (secret && isLiteral(value)) warnLiteralSecret(path, field, opts);
+    for (const [key, child] of Object.entries(value)) {
+      checkListSecrets(path, `${field}.${key}`, child, secret || isSecretKey(key), warn, seen);
+    }
+  } else if (secret && isLiteral(value)) warn(literalSecretMessage(path, field));
 }
 
 const isLiteral = (value: unknown): boolean => typeof value === 'number' || (typeof value === 'string' && value !== '');
 
-function warnLiteralSecret(path: string, field: string, opts?: LoadOptions): void {
-  opts?.onLiteralSecret?.(`${path}: "${field}" holds a literal secret (use a $VAR value to read it from the environment)`);
-}
+const literalSecretMessage = (path: string, field: string) =>
+  `${path}: "${field}" holds a literal secret (use a $VAR value to read it from the environment)`;
 
 function resolveEnvRef(path: string, field: string, value: string, opts?: LoadOptions): string {
   if (!value.startsWith('$')) return value;
