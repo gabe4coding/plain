@@ -112,7 +112,7 @@ test('reports each hit of a plain rule as a problem', () => {
     'src/a.ts:1: [no-any] use a real type',
     'src/a.ts:2: [no-any] use a real type',
     'src/b.ts:1: [no-any] use a real type',
-  ], notes: [] });
+  ] });
   assert.deepEqual(run([{ ...NO_ANY, allow: ['src/a.ts'] }]).problems, ['src/b.ts:1: [no-any] use a real type']);
 });
 
@@ -156,25 +156,24 @@ test('fails a rule that checks no file, a stale allow entry and a check that thr
   assert.deepEqual(run([throws]).problems, [`${RULE_FILE}: [no-any] check on src/c.ts threw: boom`]);
 });
 
-test('fails a ratchet rule above its baseline, passes it at the baseline, notes it below', () => {
+test('fails a ratchet rule above or below its baseline, passes it at the baseline', () => {
   assert.deepEqual(run([RATCHET], { 'no-any': 2 }), { problems: [
     'src/a.ts:1: [no-any] use a real type',
     'src/a.ts:2: [no-any] use a real type',
     'src/b.ts:1: [no-any] use a real type',
     `${BASELINE_FILE}: [no-any] 3 hits, baseline 2: remove the new hit, do not raise the baseline`,
-  ], notes: [] });
-  assert.deepEqual(run([RATCHET], { 'no-any': 3 }), { problems: [], notes: [] });
-  assert.deepEqual(run([RATCHET], { 'no-any': 5 }), { problems: [], notes: [
-    `[no-any] 3 hits, baseline 5: set "no-any": 3 in ${BASELINE_FILE}`,
   ] });
+  assert.deepEqual(run([RATCHET], { 'no-any': 3 }), { problems: [] });
+  assert.deepEqual(run([RATCHET], { 'no-any': 5 }).problems, [`${BASELINE_FILE}: [no-any] 3 hits, baseline 5: `
+    + 'set "no-any": 3 in the same change, so the slack cannot hide a new hit']);
 });
 
 test('fails a ratchet rule with no baseline or a baseline that is not a count, and a key with no ratchet rule', () => {
   assert.deepEqual(run([RATCHET]),
-    { problems: [`${BASELINE_FILE}: [no-any] no baseline: add "no-any": 3`], notes: [] });
+    { problems: [`${BASELINE_FILE}: [no-any] no baseline: add "no-any": 3`] });
   for (const count of ['5', -1, 1.5, null]) {
     assert.deepEqual(run([RATCHET], { 'no-any': count }),
-      { problems: [`${BASELINE_FILE}: [no-any] the baseline must be a whole number of 0 or more`], notes: [] });
+      { problems: [`${BASELINE_FILE}: [no-any] the baseline must be a whole number of 0 or more`] });
   }
   assert.deepEqual(run([], { gone: 1 }).problems,
     [`${BASELINE_FILE}: [gone] no ratchet rule has this name: remove it`]);

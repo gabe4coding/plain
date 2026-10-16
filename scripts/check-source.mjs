@@ -11,7 +11,8 @@
 //   check     (text, path) => [{ line, message? }], for what one line cannot show
 //   message   what to do instead, shown after each hit that gives no message of its own
 //   ratchet   optional: true counts the hits against the rule's whole number in scripts/source-rules/baseline.json;
-//             more hits than the baseline fail, fewer print the new baseline to commit
+//             any other count fails: more hits are new ones, and fewer must lower the baseline in the same change,
+//             so the slack cannot hide a new hit
 //   examples  { hit: [...], miss: [...] }, neither empty: lines for a pattern rule, { path, text } for a check
 //             rule. Each hit example must hit and each miss example must not, so a rule that can no longer find
 //             its violation fails instead of passing in silence. A pattern example is a line of a JS or TS file
@@ -146,13 +147,12 @@ function ruleResult(rule, files, read) {
 }
 
 /**
- * The problems (each `path:line: [rule] message`) and the notes of `rules` over `files`. `read(path)` gives a file's
+ * The problems (each `path:line: [rule] message`) of `rules` over `files`. `read(path)` gives a file's
  * text; `baseline` maps each ratchet rule to its allowed hit count, or is null when it cannot be read. `broken` names
  * the rule files that hold no valid rule: their baseline keys stay, so fixing the file keeps its count.
  */
 export function evaluate(rules, files, read, baseline, broken = []) {
   const problems = [];
-  const notes = [];
   for (const rule of rules) {
     let result;
     try {
@@ -179,15 +179,15 @@ export function evaluate(rules, files, read, baseline, broken = []) {
       problems.push(...hits, `${BASELINE_FILE}: [${rule.name}] ${hits.length} hits, baseline ${allowed}: `
         + 'remove the new hit, do not raise the baseline');
     } else if (hits.length < allowed) {
-      notes.push(`[${rule.name}] ${hits.length} hits, baseline ${allowed}: set "${rule.name}": ${hits.length} `
-        + `in ${BASELINE_FILE}`);
+      problems.push(`${BASELINE_FILE}: [${rule.name}] ${hits.length} hits, baseline ${allowed}: `
+        + `set "${rule.name}": ${hits.length} in the same change, so the slack cannot hide a new hit`);
     }
   }
   const names = new Set([...rules.filter((rule) => rule.ratchet).map((rule) => rule.name), ...broken]);
   for (const name of Object.keys(baseline ?? {}).filter((key) => !names.has(key))) {
     problems.push(`${BASELINE_FILE}: [${name}] no ratchet rule has this name: remove it`);
   }
-  return { problems, notes };
+  return { problems };
 }
 
 /**
@@ -254,10 +254,9 @@ async function main() {
     if (!texts.has(path)) texts.set(path, readFileSync(join(root, path), 'utf8'));
     return texts.get(path);
   };
-  const { problems: ruleProblems, notes } = evaluate(rules, files, read, baseline, broken);
+  const { problems: ruleProblems } = evaluate(rules, files, read, baseline, broken);
   const problems = [...(baselineProblem ? [baselineProblem] : []), ...loadProblems, ...ruleProblems];
 
-  for (const note of notes) console.log(note);
   if (problems.length) {
     console.error(problems.join('\n'));
     console.error(`\n${problems.length} problem(s). Each rule and its reason is in ${RULES_DIR}/.`);

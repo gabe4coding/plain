@@ -46,9 +46,9 @@ tracks and the new files that git does not ignore. It reports each hit as `path:
 also gives examples that must hit and examples that must not hit. A rule fails when an example gives the wrong
 result or when the rule checks no file.
 
-A ratchet rule fails when it has no count in `scripts/source-rules/baseline.json`, or when it finds more hits than
-that count. If it finds fewer hits, it prints the new count. Then write that count in the file. The header of
-`scripts/check-source.mjs` gives the format of a rule.
+A ratchet rule fails when it has no count in `scripts/source-rules/baseline.json`, or when it finds a different
+number of hits. If it finds fewer hits, write the new count in the file in the same change. Thus a removed hit cannot
+make space for a new hit. The header of `scripts/check-source.mjs` gives the format of a rule.
 
 `npm test` needs no API key and no native SDK. It runs these tests:
 
