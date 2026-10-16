@@ -38,6 +38,10 @@ test('CLI overrides existing env fallback; env overrides defaults', () => {
   assert.equal(parsed([], 'browser', env).flags.channel, 'chrome');
   assert.equal(parsed([], 'browser', env).flags.cdp, 'http://env');
   assert.equal(parsed([]).flags.timeout, '15000');
+  // The only place the mobile CLI gets PLAIN_APPIUM_URL from.
+  const appium = { PLAIN_APPIUM_URL: 'http://env-appium' };
+  assert.equal(parsed([], 'mobile', appium).flags.server, 'http://env-appium');
+  assert.equal(parsed(['--server', 'http://cli-appium'], 'mobile', appium).flags.server, 'http://cli-appium');
 });
 
 test('directory and glob expansion are sorted, while file positionals keep their order', () => {

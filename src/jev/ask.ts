@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TypeSafeClient, UnprocessableEntityError, BadRequestError, noul, choice } from '@typesafe-ai/sdk';
 import { Agent, setGlobalDispatcher } from 'undici';
-import { MODEL_BY_PROVIDER, provider } from './provider.js';
+import { apiKey, MODEL_BY_PROVIDER, provider } from './provider.js';
 
 // Node's default pool drops a connection after 4 s idle, and the next model calls on a new connection are
 // ~350 ms slower. Idle sockets are unref'd, so they never keep the process alive.
@@ -94,7 +94,7 @@ let typesafeClient: TypeSafeClient | undefined;
 
 function typesafe(): TypeSafeClient {
   return (typesafeClient ??= new TypeSafeClient({
-    apiKey: process.env.TYPESAFE_API_KEY,
+    apiKey: apiKey('typesafe'),
     timeout: 60_000, // per attempt: large picks have taken up to 49 s
     // The SDK retries 408/429/5xx and honors Retry-After; widened to outlast a free-tier rate-limit window.
     retry: { maxRetries: 4, backoffInitialMs: 10_000, backoffMaxMs: 65_000, maxRetryAfterMs: 65_000 },
