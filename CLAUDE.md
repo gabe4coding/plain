@@ -10,7 +10,7 @@ Before any pull request, and before you report a change as done, follow the `val
 ```
 npm run build               # src/ → dist/; after a clone and after each src/ change
 npm test                    # build + node --test 'dist/**/*.test.js' 'scripts/*.test.mjs'; needs no Jev key
-npm run verify              # the key-free gate CI runs: tests, docs, examples, plugins
+npm run verify              # the key-free gate CI runs: tests, docs, source rules, examples, plugins
 node scripts/validate.mjs   # the whole validation loop + the pre-PR stamp
 ```
 

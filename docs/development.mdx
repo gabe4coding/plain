@@ -19,12 +19,13 @@ npm run build    # compile src/ to dist/, remove stale output and write the gene
 npm test         # build, then run the tests in dist/**/*.test.js and scripts/*.test.mjs
 npm run check:docs
 npm run check:agent-notes
+npm run check:source
 npm run test:mods  # the session pane mod tests (claude plugin test). Needs the claude CLI. Not in npm test
-npm run verify   # the key-free gate: tests, docs, examples, package and plugin install
+npm run verify   # the key-free gate: tests, docs, source rules, examples, package and plugin install
 ```
 
-`npm run verify` runs `npm test`, `npm run check:docs`, `npm run check:agent-notes`, `npm run check:examples` and
-`npm run test:plugins`. The CI workflow runs the same command.
+`npm run verify` runs `npm test`, `npm run check:docs`, `npm run check:agent-notes`, `npm run check:source`,
+`npm run check:examples` and `npm run test:plugins`. The CI workflow runs the same command.
 
 `npm run check:examples` validates the specs in `examples/`, `examples/mobile/` and `e2e/`. It also validates
 each full spec and config example in the user docs, with the CLI of its engine.
@@ -38,6 +39,13 @@ same check. The full writing rules are in `.claude/skills/writing-docs/SKILL.md`
 root and the skills in `.claude/skills/`. A file must not have more lines than its limit. Each path, cited section
 and named symbol in the files must exist. The full rules for these files are in
 `.claude/skills/writing-agent-notes/SKILL.md`.
+
+`npm run check:source` checks the source files against the rules in `scripts/source-rules/`. Each rule is one file
+that names the files it checks, the pattern it finds and what to do instead. The check reads the files that git
+tracks and the new files that git does not ignore. It reports each hit as `path:line: [rule] message`. A ratchet
+rule fails when it has no count in `scripts/source-rules/baseline.json`, or when it finds more hits than that
+count. If it finds fewer hits, it prints the new count. Then write that count in the file. The header of
+`scripts/check-source.mjs` gives the format of a rule.
 
 `npm test` needs no API key and no native SDK. It runs these tests:
 
