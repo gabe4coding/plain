@@ -42,9 +42,12 @@ and named symbol in the files must exist. The full rules for these files are in
 
 `npm run check:source` checks the source files against the rules in `scripts/source-rules/`. Each rule is one file
 that names the files it checks, the pattern it finds and what to do instead. The check reads the files that git
-tracks and the new files that git does not ignore. It reports each hit as `path:line: [rule] message`. A ratchet
-rule fails when it has no count in `scripts/source-rules/baseline.json`, or when it finds more hits than that
-count. If it finds fewer hits, it prints the new count. Then write that count in the file. The header of
+tracks and the new files that git does not ignore. It reports each hit as `path:line: [rule] message`. Each rule
+also gives examples that must hit and examples that must not hit. A rule fails when an example gives the wrong
+result or when the rule checks no file.
+
+A ratchet rule fails when it has no count in `scripts/source-rules/baseline.json`, or when it finds more hits than
+that count. If it finds fewer hits, it prints the new count. Then write that count in the file. The header of
 `scripts/check-source.mjs` gives the format of a rule.
 
 `npm test` needs no API key and no native SDK. It runs these tests:

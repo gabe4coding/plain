@@ -1,18 +1,24 @@
 // Checks the source files against the rules in scripts/source-rules/: each rule turns a coding standard that a
 // writer can break with no compiler error into a failing check. One rule per file, `<name>.mjs`, so two pull
-// requests that add rules never edit the same list. A rule module default-exports:
-//   name     the rule id: the file name without `.mjs`, the prefix of each problem and the key in baseline.json
-//   files    a RegExp that a repo-relative path must match
-//   skip     a RegExp of paths to leave out; the default leaves out tests, `null` keeps them
-//   allow    path prefixes where a hit is allowed: the rule's own allowlist, visible in review
-//   pattern  a RegExp tested on each code line (a line that is only a JS comment is not code); or
-//   check    (text, path) => [{ line, message? }], for what one line cannot show
-//   message  what to do instead, shown after each hit that gives no message of its own
-//   ratchet  true: the hits are counted against scripts/source-rules/baseline.json; more hits than the baseline
-//            fail, fewer print the new baseline to commit
-// The RegExps take no `g` or `y` flag: those make `test` keep state between lines. The files are the tracked ones
-// and the untracked ones git does not ignore, so a new file is checked before `git add`; a symbolic link is not
-// checked, its target is. The rule files themselves are never checked: they hold the patterns they look for.
+// requests that add rules never edit the same list. A rule module default-exports these keys and no others:
+//   name      the rule id: the file name without `.mjs`, the prefix of each problem and the key in baseline.json
+//   files     a RegExp that a repo-relative path must match
+//   skip      optional: a RegExp of more paths to leave out; test files are always left out, unless `tests`
+//   tests     optional: true also checks the test files
+//   allow     optional: where a hit is allowed, each an exact file path or a folder ending in `/`: the rule's own
+//             allowlist, visible in review. An entry that names no file the rule checks fails
+//   pattern   a RegExp tested on each line (in a JS or TS file, a line that is only a comment is not code); or
+//   check     (text, path) => [{ line, message? }], for what one line cannot show
+//   message   what to do instead, shown after each hit that gives no message of its own
+//   ratchet   optional: true counts the hits against the rule's whole number in scripts/source-rules/baseline.json;
+//             more hits than the baseline fail, fewer print the new baseline to commit
+//   examples  { hit: [...], miss: [...] }, neither empty: lines for a pattern rule, { path, text } for a check
+//             rule. Each hit example must hit and each miss example must not, so a rule that can no longer find
+//             its violation fails instead of passing in silence
+// A rule that checks no file fails too. The RegExps take no `g` or `y` flag: those make `test` keep state between
+// lines. The files are the tracked ones and the untracked ones git does not ignore, so a new file is checked before
+// `git add`; a symbolic link is not checked, its target is. The rule files themselves are never checked: they hold
+// the patterns they look for. scripts/source-rules/ holds only rule files and baseline.json.
 //   node scripts/check-source.mjs              # this checkout
 //   node scripts/check-source.mjs --root <dir> # another checkout
 import { execFileSync } from 'node:child_process';
@@ -23,43 +29,109 @@ import { parseArgs } from 'node:util';
 
 export const RULES_DIR = 'scripts/source-rules';
 export const BASELINE_FILE = `${RULES_DIR}/baseline.json`;
-const TEST_FILE = /\.test\.[cm]?[jt]s$/;
+const RULE_KEYS = new Set(['name', 'files', 'skip', 'tests', 'allow', 'pattern', 'check', 'message', 'ratchet',
+  'examples']);
+const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
+const JS_FILE = /\.[cm]?[jt]sx?$/;
 // `//`, a `/*` closed with nothing after it or left open, a `*` or `*/` that continues a block comment. A `*` with
 // no space after it is a generator method.
 const COMMENT_LINE = /^\s*(\/\/|\/\*(?!.*\*\/\s*\S)|\*(\s|\/|$))/;
 const STATEFUL_FLAGS = /[gy]/;
 
-/** True when `rule` checks the file at `path`. */
-export function applies(rule, path) {
-  const skip = rule.skip === undefined ? TEST_FILE : rule.skip;
-  if (path.startsWith(`${RULES_DIR}/`) || !rule.files.test(path) || skip?.test(path)) return false;
-  return !(rule.allow ?? []).some((prefix) => path.startsWith(prefix));
+/** The text of a thrown value: a rule's check can throw anything. */
+const textOf = (error) => (error instanceof Error ? error.message : String(error));
+
+/** True when `entry` of a rule's allow list covers the file at `path`. */
+const allows = (entry, path) => (entry.endsWith('/') ? path.startsWith(entry) : path === entry);
+
+/** True when `rule` looks at the file at `path`, before its allow list. */
+function inScope(rule, path) {
+  if (path.startsWith(`${RULES_DIR}/`) || !rule.files.test(path)) return false;
+  return (rule.tests || !TEST_FILE.test(path)) && !rule.skip?.test(path);
 }
 
-/** The hits of `rule` in one file, as { line, message }. */
+/** True when `rule` checks the file at `path`. */
+export function applies(rule, path) {
+  return inScope(rule, path) && !(rule.allow ?? []).some((entry) => allows(entry, path));
+}
+
+/** The hits of `rule` in one file, as { line, message }. Throws when a check gives a malformed result. */
 export function ruleHits(rule, path, text) {
   if (rule.check) {
-    return rule.check(text, path).map((hit) => ({ line: hit.line, message: hit.message ?? rule.message }));
+    let hits;
+    try {
+      hits = rule.check(text, path);
+    } catch (error) {
+      throw new Error(`check on ${path} threw: ${textOf(error)}`);
+    }
+    if (!Array.isArray(hits) || !hits.every((hit) => Number.isInteger(hit?.line) && hit.line > 0
+      && (hit.message === undefined || typeof hit.message === 'string'))) {
+      throw new Error(`check on ${path} must return [{ line, message? }] with line a positive integer`);
+    }
+    return hits.map((hit) => ({ line: hit.line, message: hit.message ?? rule.message }));
   }
+  const js = JS_FILE.test(path);
   return text.split('\n').flatMap((code, i) =>
-    !COMMENT_LINE.test(code) && rule.pattern.test(code) ? [{ line: i + 1, message: rule.message }] : []);
+    !(js && COMMENT_LINE.test(code)) && rule.pattern.test(code) ? [{ line: i + 1, message: rule.message }] : []);
 }
+
+/** True when `list` is a non-empty array whose items all pass `valid`. */
+const nonEmpty = (list, valid) => Array.isArray(list) && list.length > 0 && list.every(valid);
 
 /** What is wrong with the rule exported by `file` (a file name in RULES_DIR), or null. */
 export function ruleProblem(rule, file) {
-  const regExps = [rule?.files, rule?.skip, rule?.pattern].filter((value) => value instanceof RegExp);
-  if (rule?.name !== basename(file, '.mjs')) return `name must be "${basename(file, '.mjs')}", the file name`;
+  const name = basename(file, '.mjs');
+  if (rule === null || typeof rule !== 'object') return 'needs a default export: the rule object';
+  const unknown = Object.keys(rule).filter((key) => !RULE_KEYS.has(key));
+  if (unknown.length) return `unknown key ${unknown.join(', ')}: the keys are ${[...RULE_KEYS].join(', ')}`;
+  if (rule.name !== name) return `name must be "${name}", the file name`;
   if (!(rule.files instanceof RegExp)) return 'files must be a RegExp';
-  if (rule.skip != null && !(rule.skip instanceof RegExp)) return 'skip must be a RegExp or null';
-  if (rule.allow !== undefined && !(Array.isArray(rule.allow) && rule.allow.every((p) => typeof p === 'string'))) {
-    return 'allow must be an array of path prefixes';
+  if (rule.skip !== undefined && !(rule.skip instanceof RegExp)) return 'skip must be a RegExp';
+  if (rule.tests !== undefined && typeof rule.tests !== 'boolean') return 'tests must be true or false';
+  if (rule.allow !== undefined && !nonEmpty(rule.allow, (entry) => typeof entry === 'string' && entry)) {
+    return 'allow must be a non-empty array of file paths and folders ending in /';
   }
-  if ((rule.pattern instanceof RegExp) === (typeof rule.check === 'function')) {
+  const isPattern = rule.pattern instanceof RegExp;
+  if (isPattern === (typeof rule.check === 'function')) {
     return 'needs pattern (a RegExp) or check (a function), not both';
   }
-  if (typeof rule.message !== 'string') return 'needs message';
-  if (regExps.some((regExp) => STATEFUL_FLAGS.test(regExp.flags))) return 'a RegExp must not have the g or y flag';
+  if (typeof rule.message !== 'string' || !rule.message) return 'needs message';
+  if (rule.ratchet !== undefined && typeof rule.ratchet !== 'boolean') return 'ratchet must be true or false';
+  const example = isPattern ? (line) => typeof line === 'string'
+    : (item) => typeof item?.path === 'string' && typeof item.text === 'string';
+  if (!nonEmpty(rule.examples?.hit, example) || !nonEmpty(rule.examples?.miss, example)) {
+    return `examples must be { hit: [...], miss: [...] }, neither empty, of ${isPattern ? 'lines' : '{ path, text }'}`;
+  }
+  if ([rule.files, rule.skip, rule.pattern].some((regExp) => regExp && STATEFUL_FLAGS.test(regExp.flags))) {
+    return 'a RegExp must not have the g or y flag';
+  }
   return null;
+}
+
+/** The examples of `rule` that give the wrong result, as problem texts. */
+function exampleProblems(rule) {
+  const hits = rule.pattern
+    ? (line) => rule.pattern.test(line)
+    : ({ path, text }) => ruleHits(rule, path, text).length > 0;
+  const show = (example) => JSON.stringify(rule.pattern ? example : example.path);
+  const missed = rule.examples.hit.filter((example) => !hits(example));
+  return [
+    ...missed.map((example) => `hit example ${show(example)} has no hit`),
+    ...rule.examples.miss.filter(hits).map((example) => `miss example ${show(example)} hits`),
+  ];
+}
+
+/** What is wrong with one rule itself, and its hits in `files`. */
+function ruleResult(rule, files, read) {
+  const examples = exampleProblems(rule);
+  if (examples.length) return { problems: examples, hits: [] };
+  const scope = files.filter((path) => inScope(rule, path));
+  if (!scope.length) return { problems: ['checks no file: fix files, skip or tests'], hits: [] };
+  const problems = (rule.allow ?? []).filter((entry) => !scope.some((path) => allows(entry, path)))
+    .map((entry) => `allow entry "${entry}" names no file this rule checks: remove it`);
+  const hits = scope.filter((path) => applies(rule, path)).flatMap((path) =>
+    ruleHits(rule, path, read(path)).map(({ line, message }) => `${path}:${line}: [${rule.name}] ${message}`));
+  return { problems, hits };
 }
 
 /**
@@ -70,8 +142,16 @@ export function evaluate(rules, files, read, baseline) {
   const problems = [];
   const notes = [];
   for (const rule of rules) {
-    const hits = files.filter((path) => applies(rule, path)).flatMap((path) =>
-      ruleHits(rule, path, read(path)).map(({ line, message }) => `${path}:${line}: [${rule.name}] ${message}`));
+    let result;
+    try {
+      result = ruleResult(rule, files, read);
+    } catch (error) {
+      result = { problems: [textOf(error)], hits: [] };
+    }
+    // A broken rule reports only itself: its hits and counts mean nothing until it is fixed.
+    problems.push(...result.problems.map((text) => `${RULES_DIR}/${rule.name}.mjs: [${rule.name}] ${text}`));
+    if (result.problems.length) continue;
+    const { hits } = result;
     if (!rule.ratchet) {
       problems.push(...hits);
       continue;
@@ -79,6 +159,8 @@ export function evaluate(rules, files, read, baseline) {
     const allowed = baseline[rule.name];
     if (allowed === undefined) {
       problems.push(`${BASELINE_FILE}: [${rule.name}] no baseline: add "${rule.name}": ${hits.length}`);
+    } else if (!Number.isInteger(allowed) || allowed < 0) {
+      problems.push(`${BASELINE_FILE}: [${rule.name}] the baseline must be a whole number of 0 or more`);
     } else if (hits.length > allowed) {
       problems.push(...hits, `${BASELINE_FILE}: [${rule.name}] ${hits.length} hits, baseline ${allowed}: `
         + 'remove the new hit, do not raise the baseline');
@@ -94,17 +176,26 @@ export function evaluate(rules, files, read, baseline) {
   return { problems, notes };
 }
 
-/** The rule modules of `root`, sorted by file name. */
+/** The rule modules of `root`, sorted by file name, and the problems of the files that hold none. */
 async function loadRules(root) {
   const dir = join(root, RULES_DIR);
-  if (!existsSync(dir)) return [];
-  const files = readdirSync(dir).filter((name) => name.endsWith('.mjs')).sort();
-  return Promise.all(files.map(async (name) => {
-    const rule = (await import(pathToFileURL(join(dir, name)).href)).default;
-    const problem = ruleProblem(rule, name);
-    if (problem) throw new Error(`${RULES_DIR}/${name}: ${problem}`);
-    return rule;
+  if (!existsSync(dir)) return { rules: [], problems: [] };
+  const entries = readdirSync(dir).sort();
+  const problems = entries.filter((name) => !name.endsWith('.mjs') && name !== basename(BASELINE_FILE))
+    .map((name) => `${RULES_DIR}/${name}: only rule files (<name>.mjs) and ${basename(BASELINE_FILE)} go here`);
+  const loaded = await Promise.all(entries.filter((name) => name.endsWith('.mjs')).map(async (name) => {
+    try {
+      const rule = (await import(pathToFileURL(join(dir, name)).href)).default;
+      const problem = ruleProblem(rule, name);
+      return problem ? { problem: `${RULES_DIR}/${name}: ${problem}` } : { rule };
+    } catch (error) {
+      return { problem: `${RULES_DIR}/${name}: cannot load: ${textOf(error)}` };
+    }
   }));
+  return {
+    rules: loaded.flatMap(({ rule }) => (rule ? [rule] : [])),
+    problems: [...problems, ...loaded.flatMap(({ problem }) => (problem ? [problem] : []))],
+  };
 }
 
 async function main() {
@@ -118,13 +209,14 @@ async function main() {
     .filter((path) => path && lstatSync(join(root, path), { throwIfNoEntry: false })?.isFile()).sort();
   const baselinePath = join(root, BASELINE_FILE);
   const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, 'utf8')) : {};
-  const rules = await loadRules(root);
+  const { rules, problems: loadProblems } = await loadRules(root);
   const texts = new Map();
   const read = (path) => {
     if (!texts.has(path)) texts.set(path, readFileSync(join(root, path), 'utf8'));
     return texts.get(path);
   };
-  const { problems, notes } = evaluate(rules, files, read, baseline);
+  const { problems: ruleProblems, notes } = evaluate(rules, files, read, baseline);
+  const problems = [...loadProblems, ...ruleProblems];
 
   for (const note of notes) console.log(note);
   if (problems.length) {
