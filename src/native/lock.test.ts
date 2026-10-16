@@ -30,6 +30,7 @@ class App implements ComputerAdapter<string> {
   async press() {}
   async mouse() {}
   async drag() {}
+  async scroll() {}
   async screenshot() { return Buffer.from(''); }
   async close() {}
 }

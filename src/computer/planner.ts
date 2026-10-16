@@ -1,4 +1,6 @@
 import { ask as jevAsk, type Question, type AskAnswer } from '../jev/ask.js';
+import { directionIn } from '../core/direction.js';
+import { DESKTOP_DIRECTIONS, scrollStep } from './spec.js';
 
 // Turns one spoken or typed sentence ("open Notes, then type milk and eggs in the body and press command S")
 // into plan items. Jev never writes text: code proposes the options (where a new instruction may start, which
@@ -47,6 +49,9 @@ const ARGUMENTS = {
   app: 'if it asks to open or switch to an application, which words name the application?',
   keys: 'if it asks to press keys, which words name the key or shortcut?',
 } as const;
+
+/** Only the directions a desktop scroll step takes. */
+const SCROLL_CHOICES = Object.fromEntries(DESKTOP_DIRECTIONS.map((direction) => [direction, direction[0].toUpperCase() + direction.slice(1)]));
 
 const KEYS: Record<string, string> = {
   enter: 'Enter', return: 'Enter', escape: 'Escape', esc: 'Escape', tab: 'Tab', space: 'Space',
@@ -170,7 +175,7 @@ async function route(segments: string[], ask: Ask): Promise<{ items: PlanItem[];
     add('dir', {
       kind: 'choice',
       instructions: `If \`segments[${i}]\` asks to scroll, in which direction?`,
-      criteria: { up: 'Up', down: 'Down', left: 'Left', right: 'Right', none: 'Not a scroll' },
+      criteria: { ...SCROLL_CHOICES, none: 'Not a scroll' },
     });
     add('risky', { kind: 'boolean', instructions: `Would doing \`segments[${i}]\` send, publish, pay, buy, delete or otherwise do something hard to undo?` });
     questionIndex.push(indexOf);
@@ -226,9 +231,9 @@ function itemFor(segment: string, answer: (key: string) => AskAnswer, spanOption
       return keys ? { kind: 'step', step: { press: keysFrom(keys) }, risky } : unknown('no key named');
     }
     case 'scroll': {
-      const direction = answer('dir').choice;
-      if (!direction || direction === 'none') return unknown('no direction');
-      return { kind: 'step', step: { scroll: `${direction}: ${pick('target') ?? 'the window'}` }, risky: false };
+      const direction = directionIn(answer('dir').choice, DESKTOP_DIRECTIONS);
+      if (!direction) return unknown('no direction');
+      return { kind: 'step', step: scrollStep({ direction, target: pick('target') ?? 'the window' }), risky: false };
     }
     case 'other':
       return unknown('say which button or key does it');

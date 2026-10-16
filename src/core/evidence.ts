@@ -3,6 +3,7 @@
  * (src/jev/evidence.ts). Groups are queued per spec or batch and classified in one request when a step first needs
  * an answer; each group keeps its own route. A group queued after that (a later MCP `step`) gets its own request.
  */
+import { DIRECTIONS, parseScroll } from './direction.js';
 
 export interface EvidenceRoutes {
   pending: Map<string, string[]>;
@@ -15,8 +16,6 @@ export const evidenceRoutes = (): EvidenceRoutes => ({ pending: new Map(), decid
 export type DescribedStep = { kind: string; target?: unknown; source?: unknown; within?: unknown; expectations?: unknown; condition?: unknown };
 
 const NO_DESCRIPTION = new Set(['goto', 'press', 'mouse']);
-/** A desktop or mobile scroll target starts with its direction, which is not a spatial relation between elements. */
-const SCROLL_DIRECTION = /^(up|down|left|right):\s*/;
 
 const text = (value: unknown): string[] => (typeof value === 'string' && value ? [value] : []);
 
@@ -37,7 +36,8 @@ export function promptGroups(step: DescribedStep): string[][] {
   } else if (step.kind === 'swipe') {
     groups.push(targets(text(step.within)));
   } else if (step.kind === 'scroll') {
-    groups.push(targets(text(step.target).map((target) => target.replace(SCROLL_DIRECTION, ''))));
+    // A desktop or mobile scroll target starts with its direction, which is not a spatial relation between elements.
+    groups.push(targets(text(step.target).map((target) => parseScroll(target, DIRECTIONS)?.target ?? target)));
   } else {
     groups.push(targets(text(step.target)));
   }

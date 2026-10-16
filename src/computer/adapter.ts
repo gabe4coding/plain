@@ -5,13 +5,15 @@ import type { CaptureOptions, NativeAdapter } from '../native/session.js';
 import { MAX_LAYOUT_ELEMENTS, nativeLayout, type LayoutItem } from '../core/layout.js';
 
 export type ComputerKind = 'click' | 'fill' | 'check' | 'hover' | 'region' | 'scroll';
-export type ComputerAction = 'click' | 'fill' | 'check' | 'uncheck' | 'hover' | 'dblclick' | 'rightclick' | 'scroll';
+export type ComputerAction = 'click' | 'fill' | 'check' | 'uncheck' | 'hover' | 'dblclick' | 'rightclick';
 export interface ComputerTarget { app?: string; pid?: number }
 
 export interface ComputerAdapter<T = unknown> extends NativeAdapter<T, ComputerKind> {
   apps(): Promise<{ name: string; pid: number | null }[]>;
   open(target: ComputerTarget, activate: boolean): Promise<{ name: string; pid: number | null }>;
   act(kind: ComputerAction, element: T, value?: string): Promise<void>;
+  /** A wheel movement over `element`, in lines: `dx` > 0 scrolls right, `dy` > 0 scrolls the content down. */
+  scroll(element: T, dx: number, dy: number): Promise<void>;
   mouse(x: number, y: number): Promise<void>;
   drag(source: T, target: T): Promise<void>;
 }
@@ -224,8 +226,12 @@ export class Xa11yAdapter implements ComputerAdapter<Element> {
     if (kind === 'hover') return input.moveTo(element);
     if (kind === 'dblclick') return input.doubleClick(element);
     if (kind === 'rightclick') return input.rightClick(element);
-    // A wheel scroll: scrollIntoView does nothing on macOS.
-    return input.scroll(element, 0, Number(value ?? 3));
+    throw new Error(`${kind satisfies never} is not a desktop action`);
+  }
+
+  /** A wheel scroll: scrollIntoView does nothing on macOS. */
+  async scroll(element: Element, dx: number, dy: number) {
+    return (await this.foreground()).scroll(element, dx, dy);
   }
 
   secret(element: Element) {

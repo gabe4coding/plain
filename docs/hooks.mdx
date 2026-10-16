@@ -80,8 +80,8 @@ arguments and the data from `setup` go between the processes as JSON. Return pla
 A `${hooks.*}` placeholder must name a text, number or boolean value. See
 [placeholders](spec-reference.mdx#placeholders).
 
-Write logs with `console.error`, not `console.log`. The hooks process shares the stdout of plain.
-stdout carries the `jsonl` report, and in agent mode the MCP messages.
+The hooks process writes its stdout to the stderr of plain. Thus a `console.log` in a hook goes to stderr. It
+does not change the `jsonl` report or, in agent mode, the MCP messages. The hooks process has no stdin.
 
 ## Failure rules
 

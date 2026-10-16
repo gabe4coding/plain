@@ -98,7 +98,7 @@ The format is the browser format of the [spec reference](spec-reference.mdx), wi
 | `check`, `uncheck` | Toggles only when the state must change. A mixed state is an `error`. |
 | `hover`, `dblclick`, `rightclick` | Sends a pointer action to the control. |
 | `scroll: "down: the list"` | Sends one wheel movement of 3 lines to a scrollable element. |
-| `scroll: "up: the list"` | The same, upward. |
+| `scroll: "up: the list"`, `"left: …"`, `"right: …"` | The same, upward, to the left or to the right. |
 | `press: "Control+a"` | Sends a key or a chord. The last part is the key, the other parts are modifiers. |
 | `mouse: {x, y}` | Moves the pointer to logical desktop coordinates. |
 | `drag: {source, target}` | Picks both elements in one Jev request, then drags. |
