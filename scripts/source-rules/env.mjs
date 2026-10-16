@@ -1,24 +1,22 @@
 // The CLIs load the `.env` files after their imports have run, so a value read from the environment while a module
 // loads ignores them. Only the allowed modules touch `process.env`; everywhere else, the accessors they export are
-// called on each use and never while the module loads, unless a CLI entry module calls them after its own
-// module-scope `loadEnvFiles();` (imported from src/jev/provider.ts). The rule finds the reads one line at a time and
-// the accessor calls with the TypeScript parser, so these pass it: an alias of `process` other than `= process` at
-// the end of a line (`globalThis.process`, `process as T`), a computed key (`process[key]`), a dynamic
-// `import('node:process')`, an accessor called through a local alias (`const on = switchOn`), with a computed name
-// (`env['switchOn']()`), from a module function that is called while the module loads, or in a callback that runs at
-// once but is no IIFE or array method callback (`Array.from(list, () => switchOn('PLAIN_X'))`), and every call in
-// the allowed modules: the rule does not read them.
+// called on each use and never while the module loads, unless the module first calls `loadEnvFiles();` (imported from
+// src/jev/provider.ts) at module scope, as the CLI entry modules do: the calls after it see the .env files. The rule
+// finds the reads of `process.env` one line at a time, and the imports of `process` and the accessor calls with the
+// TypeScript parser, so these pass it: an alias of `process` other than `= process` at the end of a line
+// (`globalThis.process`, `process as T`), a computed key (`process[key]`), a dynamic `import('node:process')`, an
+// accessor called through a local alias (`const on = switchOn`), with a computed name (`env['switchOn']()`), from a
+// module function that is called while the module loads, or in a callback that runs at once but is no IIFE or array
+// method callback (`Array.from(list, () => switchOn('PLAIN_X'))`), and every call in the allowed modules: the rule
+// does not read them.
 import ts from 'typescript';
 
-/**
- * `process.env`, `process?.env`, `process['env']`, `{ env } = process` (also its last line), an alias, or an import of
- * `env`, of the whole module (`* as proc`) or of its default export (`proc`).
- */
+/** `process.env`, `process?.env`, `process['env']`, `{ env } = process` (also its last line) or an alias. */
 const ENV_READ = new RegExp([
   /\bprocess\s*(\??\.\s*env\b|(\?\.\s*)?\[\s*['"`]env['"`]\s*\])/,
   /(^|[^=!<>])=\s*process\s*;?\s*$/,
-  /(\{[^}]*\benv\b[^}]*\}|\*\s+as\s+[\w$]+|\bimport\s+[\w$]+(\s*,[^'"]*?)?)\s+from\s+['"](node:)?process['"]/,
 ].map((part) => part.source).join('|'));
+const PROCESS_MODULE = /^(node:)?process$/;
 /** The accessors of the allowed modules that read the environment. */
 const ACCESSORS = ['switchOn', 'apiKey', 'readEnabled', 'changesEnabled', 'changesNote', 'provider', 'selectProvider'];
 /** The array methods that call their callback before they return. */
@@ -55,15 +53,30 @@ function runsLater(node, child) {
   return false;
 }
 
-/** The lines of the accessor calls that run when the module at `path` loads, before it loads the .env files. */
-function callsAtLoad(text, path) {
+/** True when the import `statement` of `process` brings in `env`, the whole module or its default export. */
+function importsEnv(statement) {
+  const clause = statement.importClause;
+  if (!PROCESS_MODULE.test(statement.moduleSpecifier.text) || !clause || clause.isTypeOnly) return false;
+  const bindings = clause.namedBindings;
+  return Boolean(clause.name) || (bindings !== undefined && (ts.isNamespaceImport(bindings)
+    || bindings.elements.some((element) => !element.isTypeOnly && (element.propertyName ?? element.name).text === 'env')));
+}
+
+/**
+ * The lines of the module at `path` that import `env` from `process` (`imports`), and of the accessor calls that run
+ * when the module loads, before it loads the .env files (`calls`).
+ */
+function parse(text, path) {
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const lineOf = (node) => file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
   // `import { switchOn as on }` calls the accessor `on`, `import * as env` calls `env.switchOn`.
   const names = new Set(ACCESSORS);
   const namespaces = new Set();
   const loaders = new Set();
+  const imports = [];
   for (const statement of file.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (importsEnv(statement)) imports.push(lineOf(statement));
     const bindings = statement.importClause?.namedBindings;
     if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
     for (const { name, propertyName } of bindings && ts.isNamedImports(bindings) ? bindings.elements : []) {
@@ -72,28 +85,30 @@ function callsAtLoad(text, path) {
       if (imported === 'loadEnvFiles' && PROVIDER_MODULE.test(statement.moduleSpecifier.text)) loaders.add(name.text);
     }
   }
-  // A CLI entry module loads the .env files itself, at module scope: the calls after that see them.
+  // A module that loads the .env files at module scope, as the CLI entry modules do: the calls after that see them.
   const loaded = file.statements.find((statement) => ts.isExpressionStatement(statement)
     && ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression)
     && loaders.has(statement.expression.expression.text))?.end ?? Infinity;
   const isAccessor = (callee) => (ts.isIdentifier(callee) && names.has(callee.text))
     || (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)
       && namespaces.has(callee.expression.text) && ACCESSORS.includes(callee.name.text));
-  const lines = [];
+  const calls = [];
   const visit = (node, later) => {
     if (!later && node.pos < loaded && ts.isCallExpression(node) && isAccessor(node.expression)) {
-      lines.push(file.getLineAndCharacterOfPosition(node.expression.getStart(file)).line + 1);
+      calls.push(lineOf(node.expression));
     }
     ts.forEachChild(node, (child) => visit(child, later || runsLater(node, child)));
   };
   visit(file, false);
-  return lines;
+  return { imports, calls };
 }
 
-/** Each environment read, and each accessor call that runs when the module loads. */
+/** Each environment read or import, and each accessor call that runs when the module loads. */
 function check(text, path) {
-  const reads = text.split('\n').flatMap((line, i) => (!COMMENT.test(line) && ENV_READ.test(line) ? [i + 1] : []));
-  const calls = [...new Set(callsAtLoad(text, path))].filter((line) => !reads.includes(line));
+  const { imports, calls: atLoad } = parse(text, path);
+  const reads = [...new Set([...text.split('\n')
+    .flatMap((line, i) => (!COMMENT.test(line) && ENV_READ.test(line) ? [i + 1] : [])), ...imports])];
+  const calls = [...new Set(atLoad)].filter((line) => !reads.includes(line));
   return [...reads.map((line) => ({ line })), ...calls.map((line) => ({ line, message: AT_LOAD }))]
     .sort((a, b) => a.line - b.line);
 }
@@ -126,6 +141,8 @@ export default {
       { path: 'src/a.ts', text: "import * as proc from 'process';" },
       { path: 'src/a.ts', text: "import proc from 'node:process';\nconst key = proc.env.KEY;" },
       { path: 'src/a.ts', text: "import proc, { argv } from 'process';" },
+      { path: 'src/a.ts', text: "import {\n  argv,\n  env,\n} from 'node:process';" },
+      { path: 'src/a.ts', text: "import proc\n  from 'node:process';" },
       { path: 'src/a.ts', text: "export const READ = readEnabled();" },
       { path: 'src/a.ts', text: "const DESCRIPTION = 'Runs steps.' +\n  changesNote().replace('the action', 'the batch');" },
       { path: 'src/a.ts', text: "if (switchOn('PLAIN_X')) register();" },
@@ -153,6 +170,7 @@ export default {
       { path: 'src/a.ts', text: "const flags = (function* () {\n  yield switchOn('PLAIN_X');\n})();" },
       { path: 'src/a.ts', text: 'export const chosen = services.provider();\nconst same = value === process;' },
       { path: 'src/a.ts', text: "import { argv } from 'node:process';\nimport type Proc from './proc.js';" },
+      { path: 'src/a.ts', text: "import type proc from 'node:process';\nimport {\n  argv,\n  type env,\n} from 'process';" },
       { path: 'src/cli.ts', text: `${LOAD_ENV}try {\n  const chosen = provider();\n} catch {}` },
       { path: 'src/a.ts', text: "const env = { ...base, PLAIN_READ: '0' };\nfunction run(env: NodeJS.ProcessEnv) {}" },
       { path: 'src/a.ts', text: '// reads process.env.VAR\nconst { envFile } = options;\nprocess.exitCode = 2;' },
