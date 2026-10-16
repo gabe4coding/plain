@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { BrowserContext } from 'playwright';
+import type { BrowserContext, Page } from 'playwright';
 import { DUMP_DIR, errorMessage, isFailure } from '../core/results.js';
 import type { Artifact, CaptureTarget, Engine, SpecInfo } from '../core/run-contract.js';
 import type { RunObserver, SuiteOptions } from './types.js';
@@ -67,7 +67,7 @@ export function artifactsObserver(opts: SuiteOptions, engine?: Engine): RunObser
   if (engine) checkEngine(engine);
   const cwd = process.cwd();
   const root = path.resolve(cwd, settings.dir);
-  const captures = new WeakMap<CaptureTarget, Capture>();
+  const captures = new WeakMap<CaptureTarget<Page>, Capture>();
   const slugByFile = new Map<string, string>();
   const usedSlugs = new Set<string>();
   const usedAttempts = new Set<string>();
