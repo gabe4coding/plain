@@ -367,6 +367,7 @@ test('iOS waits after fill and a tap on a text control until the keyboard is on 
     }
     if (path.endsWith('/execute/sync')) return null; // this server has no `mobile: source`
     if (!path.endsWith('/element') || method !== 'POST') return undefined;
+    assert.equal(body.using, '-ios class chain', 'iOS finds a control by its class chain, not by xpath');
     const node = lookupNode(ios, body)!;
     return { [ELEMENT]: 'control', type: node.role, enabled: node.enabled, rect: { x: 0, y: 0, width: 10, height: 10 },
       'attribute/name': node.attrs.name ?? null, 'attribute/label': node.attrs.label ?? null, 'attribute/visible': node.visible };
