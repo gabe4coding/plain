@@ -4,12 +4,15 @@ import { label, type StepResult } from '../core/results.js';
 import { NativeSession } from '../native/session.js';
 import { runNativeSpec } from '../native/run-spec.js';
 import type { SessionObserver, SpecInfo } from '../core/run-contract.js';
-import { parseComputerStep, type ComputerSpec } from './spec.js';
+import { desktopScroll, parseComputerStep, type ComputerSpec, type DesktopDirection } from './spec.js';
 import type { ComputerAction, ComputerAdapter, ComputerKind } from './adapter.js';
 
 const BROWSER_ONLY = new Set(['goto', 'select', 'upload']);
-const SCROLL_DIRECTION = /^(up|down):\s*/;
 const SCROLL_LINES = 3;
+/** The wheel movement `[dx, dy]` of a scroll step. */
+const WHEEL: Record<DesktopDirection, [number, number]> = {
+  up: [0, -SCROLL_LINES], down: [0, SCROLL_LINES], left: [-SCROLL_LINES, 0], right: [SCROLL_LINES, 0],
+};
 
 /** The candidates a desktop step picks from. */
 function candidateKind(kind: Step['kind']): ComputerKind {
@@ -43,17 +46,20 @@ export class ComputerSession<T = unknown> extends NativeSession<T, ComputerKind,
     }
     if (!('target' in step) || BROWSER_ONLY.has(step.kind)) throw new Error(`${step.kind} is browser-only`);
 
-    // `scroll: "down: the list"`: the direction prefix is not part of the target.
-    const target = step.kind === 'scroll' ? step.target.replace(SCROLL_DIRECTION, '') : step.target;
-    const [resolved] = await this.find(candidateKind(step.kind), [target]);
+    // `scroll: "down: the list"`: the direction is not part of the target.
+    const scroll = step.kind === 'scroll' ? desktopScroll(step.target) : undefined;
+    const [resolved] = await this.find(candidateKind(step.kind), [scroll?.target ?? step.target]);
     if (resolved.element === null) return { step: stepLabel, status: 'inconclusive', detail: resolved.detail };
     const element = resolved.element;
-    const value = step.kind === 'fill' ? step.value
-      : step.kind === 'scroll' ? String(step.target.startsWith('up:') ? -SCROLL_LINES : SCROLL_LINES)
-        : undefined;
-    const action = step.kind as ComputerAction;
     this.noteFill(step, element);
-    await this.timed('act', () => this.adapter.act(action, element, value));
+    if (scroll) {
+      const [dx, dy] = WHEEL[scroll.direction];
+      await this.timed('act', () => this.adapter.scroll(element, dx, dy));
+    } else {
+      const value = step.kind === 'fill' ? step.value : undefined;
+      const action = step.kind as ComputerAction;
+      await this.timed('act', () => this.adapter.act(action, element, value));
+    }
     return { step: stepLabel, status: 'pass', detail: resolved.detail };
   }
 }

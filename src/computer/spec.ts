@@ -1,10 +1,21 @@
 import { z } from 'zod';
 import { parseStep, rejectCss, loadNativeSpec, TagsSchema, type LoadOptions, type Step } from '../core/spec.js';
+import { DIRECTIONS, requireScroll, scrollText, type Scroll } from '../core/direction.js';
 
 export const ComputerTargetSchema = z.object({ app: z.string().trim().min(1).optional(), pid: z.number().int().positive().optional() })
   .refine((target) => (target.app !== undefined) !== (target.pid !== undefined), 'provide exactly one of app or pid');
 
 const SUPPORTED = new Set(['click', 'fill', 'hover', 'dblclick', 'rightclick', 'check', 'uncheck', 'scroll', 'press', 'drag', 'mouse', 'wait', 'expect']);
+
+/** The wheel scrolls both axes. */
+export const DESKTOP_DIRECTIONS = DIRECTIONS;
+export type DesktopDirection = (typeof DESKTOP_DIRECTIONS)[number];
+
+/** The direction and the target of a desktop `scroll` step's value. */
+export const desktopScroll = (text: string): Scroll<DesktopDirection> => requireScroll(text, DESKTOP_DIRECTIONS, 'Desktop');
+
+/** A desktop scroll step as YAML and MCP write it. */
+export const scrollStep = (scroll: Scroll<DesktopDirection>) => ({ scroll: scrollText(scroll) });
 
 export interface ComputerSpec {
   name: string;
@@ -33,7 +44,7 @@ export function parseComputerStep(raw: unknown, where = 'computer', index = 0): 
   const step = parseStep(where, index, raw);
   if (!SUPPORTED.has(step.kind)) throw new Error(`${step.kind} is browser-only; desktop supports ${[...SUPPORTED].join(', ')}`);
   rejectCss(step, 'desktop');
-  if (step.kind === 'scroll' && !/^(up|down):\s*\S/.test(step.target)) throw new Error('Desktop scroll syntax: "down: the results list" or "up: the editor"');
+  if (step.kind === 'scroll') desktopScroll(step.target);
   return step;
 }
 
