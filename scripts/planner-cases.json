@@ -190,6 +190,26 @@
    ]
   },
   {
+   "say": "Scroll right in the timeline",
+   "plan": [
+    [
+     "scroll",
+     "right",
+     "the timeline"
+    ]
+   ]
+  },
+  {
+   "say": "scroll the photo strip to the left",
+   "plan": [
+    [
+     "scroll",
+     "left",
+     "the photo strip"
+    ]
+   ]
+  },
+  {
    "say": "Open TextEdit",
    "plan": [
     [

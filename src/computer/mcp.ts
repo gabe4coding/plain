@@ -5,12 +5,13 @@ import { jsonResult as ok } from '../core/mcp-result.js';
 import { createNativeServer, serveNative } from '../native/mcp.js';
 import { Xa11yAdapter, type ComputerAdapter } from './adapter.js';
 import { ComputerSession } from './session.js';
-import { ComputerTargetSchema, type ComputerSpec } from './spec.js';
+import { ComputerTargetSchema, DESKTOP_DIRECTIONS, type ComputerSpec } from './spec.js';
 
 const DESCRIPTIONS = {
   step: 'One natural-language desktop action: {click:"the OK button"}, {fill:{target:"the editor",value:"hello"}}, ' +
     '{check:"the checkbox"}, {uncheck:"the checkbox"}, {hover:"the icon"}, {dblclick:"the file"}, {rightclick:"the row"}, ' +
-    '{scroll:"down: the list"} (or up:), {press:"Control+a"}, {drag:{source:"the row",target:"the folder"}}, {mouse:{x:100,y:100}}, ' +
+    `{scroll:"down: the list"} (direction ${DESKTOP_DIRECTIONS.join('|')}), ` +
+    '{press:"Control+a"}, {drag:{source:"the row",target:"the folder"}}, {mouse:{x:100,y:100}}, ' +
     '{expect:["claim"]}, {expect:{that:"claim",within:"the dialog"}}, {wait:"claim"}. optional:true tolerates errors/inconclusive ' +
     'as skipped. css=, goto, select and upload are browser-only. Jev picks at >=0.5 confidence (probability fallback); claims pass ' +
     '>=0.9, fail <=0.1. Rephrase inconclusive targets. Coordinates are logical desktop coordinates. Only passing steps are recorded; ' +

@@ -55,6 +55,21 @@ test('mobile acts only after accepted picks, and gestures retain their direction
   assert.equal((await reject.step({ click: 'Preview' })).status, 'inconclusive');
   assert.equal(adapter.log.length, before + 1); // capture only
 });
+test('mobile scroll takes up, down, left and right, and a direction only after interpolation', async () => {
+  const adapter = new FakeAdapter();
+  const picked: string[] = [];
+  const session = new MobileSession(adapter, 100, { ...ai, pick: async (...args) => { picked.push(...args[1]); return ai.pick(...args); } });
+  for (const direction of ['up', 'down', 'left', 'right']) {
+    assert.equal((await session.step({ scroll: `${direction}: the carousel` })).status, 'pass');
+    assert.deepEqual(adapter.log.at(-1), ['gesture', 'scroll', direction, 'control']);
+  }
+  assert.deepEqual(picked, ['the carousel', 'the carousel', 'the carousel', 'the carousel']);
+  for (const raw of [{ scroll: 'sideways: the list' }, { scroll: 'left:' }, { scroll: 'Down: the list' }]) assert.throws(() => parseMobileStep(raw), /Mobile scroll syntax/);
+  // A templated target loads; the step is checked again once the placeholder is filled in.
+  assert.ok(parseMobileStep({ scroll: '${hooks.where}' }));
+  const filled = await session.run({ kind: 'scroll', target: 'sideways: the list' });
+  assert.equal(filled.status, 'error'); assert.match(filled.detail ?? '', /Mobile scroll syntax/);
+});
 test('a hidden pick is targeted again once from a new capture, then reported', async () => {
   const adapter = new FakeAdapter(); const session = new MobileSession(adapter, 100, ai);
   let hidden = 1;
