@@ -36,6 +36,9 @@ Each change carries its own proof; choose the strongest that fits:
 - `e2e/` uses no remote site, so a failure there is plain's or Jev's. Phrase its targets and claims so one clear
   answer exists; when Jev misses on such a page, suspect the product (what Jev is shown) before the wording.
 - Never weaken a gate to get green (thresholds, expected statuses, `optional`, skipped tests, eval checks).
+  `scripts/gates.test.mjs` enforces it: no e2e step marked `optional`, no skipped test except a listed platform skip,
+  the Jev thresholds, and exact floors for the e2e specs, `expect-fail` tags and eval cases. Add a spec or case:
+  raise its floor there. Remove one: lower the floor and say why in the pull request.
 
 ## Docs that follow the code
 
