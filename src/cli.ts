@@ -2,7 +2,8 @@
 import { loadSpec, type Spec } from './core/spec.js';
 import { errorMessage } from './core/results.js';
 import { runSpec } from './browser/runner.js';
-import { closeSharedBrowser, type RunOptions } from './browser/session.js';
+import { closeSharedBrowser } from './browser/session.js';
+import type { RunOptions } from './browser/run-options.js';
 import { provider, loadEnvFiles, MODEL_BY_PROVIDER } from './jev/provider.js';
 import { warmUp } from './jev/ask.js';
 import { parseSuiteArgs, UsageError } from './suite/options.js';

@@ -1,14 +1,12 @@
 import type { Page } from 'playwright';
-import type { Status, StepResult, TestResult } from '../core/results.js';
+import type { Status, TestResult } from '../core/results.js';
 import type { LoadOptions } from '../core/spec.js';
-import type { LockAttempt, RunMode } from '../core/lock.js';
+import type { RunMode } from '../core/lock.js';
+import type { Artifact, Engine, SessionObserver, SpecInfo } from '../core/run-contract.js';
 
-export type Engine = 'browser' | 'desktop' | 'mobile';
 export type StopReason = 'bail' | 'max-tokens';
 export const CAPTURE_MODES = ['off', 'on-failure', 'always'] as const;
 export type CaptureMode = typeof CAPTURE_MODES[number];
-
-export interface Artifact { kind: 'screenshot' | 'trace' | 'dump'; path: string; step?: number }
 
 /** One execution of one spec. */
 export interface Attempt extends TestResult {
@@ -43,34 +41,9 @@ export interface RunReport {
   status: 'pass' | 'fail';
 }
 
-/** What an observer can capture: a screenshot, and for the browser the page (for tracing). */
-export interface CaptureTarget {
-  engine: Engine;
-  /** An attached browser context: tracing would also record the user's other tabs. */
-  cdp?: boolean;
-  screenshot(file: string): Promise<void>;
-  page?(): Page;
-}
-
-export interface SpecInfo {
-  file: string;
-  name: string;
-  tags: string[];
-  attempt: number;
-  /** This attempt's lock, from the suite; the engine takes it off before observers see the info. */
-  lock?: LockAttempt;
-}
-
-export interface RunObserver {
+/** The engine's session events, with the browser page typed for tracing, plus the suite's run and spec events. */
+export interface RunObserver extends SessionObserver<Page> {
   runStart?(event: { engine: Engine; specs: { file: string; name: string; tags: string[] }[] }): Promise<void>;
-  /**
-   * The target can be captured; fires before the first step. Browser: right after the context opens, before
-   * setup. Desktop and mobile: after setup and `open()`, since setup may choose the app or the device. `stepEnd`
-   * fires only after it, and `sessionClose` only when it fired.
-   */
-  sessionOpen?(event: SpecInfo & { target: CaptureTarget }): Promise<void>;
-  stepEnd?(event: SpecInfo & { index: number; result: StepResult; target: CaptureTarget }): Promise<void>;
-  sessionClose?(event: SpecInfo & { status: Status; target: CaptureTarget }): Promise<Artifact[]>;
   specEnd?(event: { report: SpecReport }): Promise<void>;
   runEnd?(event: { report: RunReport }): Promise<void>;
 }

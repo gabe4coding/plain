@@ -16,7 +16,8 @@ import { snapshotView, SnapshotOptions, SNAPSHOT_MODES_DESCRIPTION } from '../co
 import { readAnswer, READ_ENABLED, READ_DESCRIPTION } from '../core/read.js';
 import { serialQueue } from '../core/serial-queue.js';
 import { jsonResult as ok, askResult, AskClaims, ASK_DESCRIPTION } from '../core/mcp-result.js';
-import { openSession, closeSharedBrowser, type Session, type RunOptions } from './session.js';
+import { openSession, closeSharedBrowser, type Session } from './session.js';
+import type { RunOptions } from './run-options.js';
 import { runStep, runStepSafely } from './steps.js';
 import { resolveOne } from './locate.js';
 import { askPage } from './judge-page.js';

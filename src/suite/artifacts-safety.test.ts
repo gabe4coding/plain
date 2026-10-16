@@ -5,11 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { artifactsObserver } from './artifacts.js';
 import { parseSuiteArgs } from './options.js';
-import type { CaptureTarget, RunObserver, SuiteOptions } from './types.js';
+import type { Page } from 'playwright';
+import type { CaptureTarget } from '../core/run-contract.js';
+import type { RunObserver, SuiteOptions } from './types.js';
 
 const base: SuiteOptions = { files: [], workers: 1, retries: 0, bail: 0, lastFailed: false, tags: [], list: false, reporters: [], timing: false };
 const observer = (dir: string): RunObserver => artifactsObserver({ ...base, artifacts: { dir, screenshot: 'on-failure', trace: 'off' } })!;
-const target: CaptureTarget = { engine: 'browser', async screenshot(file) { fs.writeFileSync(file, 'PNG'); } };
+const target: CaptureTarget<Page> = { engine: 'browser', async screenshot(file) { fs.writeFileSync(file, 'PNG'); } };
 const start = (o: RunObserver, files: string[]) => o.runStart!({ engine: 'browser', specs: files.map((file) => ({ file, name: file, tags: [] })) });
 function inTemp(t: TestContext): string {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plain-artifacts-safety-')));

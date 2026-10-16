@@ -3,7 +3,7 @@ import type { Step } from '../core/spec.js';
 import { label, type StepResult } from '../core/results.js';
 import { NativeSession } from '../native/session.js';
 import { runNativeSpec } from '../native/run-spec.js';
-import type { RunObserver, SpecInfo } from '../suite/types.js';
+import type { SessionObserver, SpecInfo } from '../core/run-contract.js';
 import { parseComputerStep, type ComputerSpec } from './spec.js';
 import type { ComputerAction, ComputerAdapter, ComputerKind } from './adapter.js';
 
@@ -58,7 +58,7 @@ export class ComputerSession<T = unknown> extends NativeSession<T, ComputerKind,
   }
 }
 
-export function runComputerSpec<T>(spec: ComputerSpec, session: ComputerSession<T>, observer?: RunObserver, info?: SpecInfo, specTimeout?: number) {
+export function runComputerSpec<T>(spec: ComputerSpec, session: ComputerSession<T>, observer?: SessionObserver, info?: SpecInfo, specTimeout?: number) {
   return runNativeSpec(spec, session as ComputerSession, async (vars) => {
     const resolved = interpolate({ app: spec.app, steps: spec.steps }, vars, spec.name);
     await session.adapter.open({ app: resolved.app }, true);

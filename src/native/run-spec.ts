@@ -4,9 +4,9 @@ import path from 'node:path';
 import { startHooks, type HooksRunner, type HookSpec } from '../core/hooks.js';
 import type { PlaceholderValues } from '../core/interpolate.js';
 import { isFailure, type Status, type StepResult, type TestResult } from '../core/results.js';
-import { observerCalls } from '../suite/observe.js';
-import { specDeadline } from '../suite/spec-timeout.js';
-import type { CaptureTarget, RunObserver, SpecInfo } from '../suite/types.js';
+import { observerCalls } from '../core/observe.js';
+import { specDeadline } from '../core/spec-deadline.js';
+import type { CaptureTarget, SessionObserver, SpecInfo } from '../core/run-contract.js';
 import type { NativeAdapter, NativeSession, NativeStep } from './session.js';
 
 type NativeSpec<S> = HookSpec & { env: Record<string, unknown>; hooks?: string; goal?: string; steps: S[]; tags?: string[]; timeout?: number };
@@ -17,7 +17,7 @@ type NativeSpec<S> = HookSpec & { env: Record<string, unknown>; hooks?: string; 
  */
 export async function runNativeSpec<S extends NativeStep, P extends NativeSpec<S>>(spec: P,
   session: NativeSession<unknown, string, S, NativeAdapter<unknown, string>>, open: (vars: PlaceholderValues) => Promise<S[]>,
-  observer?: RunObserver, info?: SpecInfo, specTimeout?: number): Promise<TestResult> {
+  observer?: SessionObserver, info?: SpecInfo, specTimeout?: number): Promise<TestResult> {
   const deadline = specDeadline(spec.timeout ?? specTimeout, performance.now());
   const steps: StepResult[] = [];
   const { lock, ...specInfo }: SpecInfo = info ?? { file: spec.name, name: spec.name, tags: spec.tags ?? [], attempt: 0 };

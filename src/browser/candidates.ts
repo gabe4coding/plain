@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Page, Locator } from 'playwright';
 import { StepKind } from '../core/step-kind.js';
-import type { Candidate } from '../core/automation.js';
+import type { Candidate } from '../core/candidate.js';
 import { blockersIn, frameLabel, frameIsInert, releaseBlockers, type BlockerCache } from './frames.js';
 import { PASSWORD_MASK } from './page.js';
 

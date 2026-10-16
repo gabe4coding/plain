@@ -1,7 +1,7 @@
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { MAX_CANDIDATES } from '../jev/pick.js';
-import type { Candidate, Frame } from '../core/automation.js';
-import { MAX_LAYOUT_ELEMENTS, nativeLayout, type Bounds, type LayoutItem } from '../core/layout.js';
+import { MAX_CANDIDATES, type Frame } from '../core/automation.js';
+import type { Bounds, Candidate } from '../core/candidate.js';
+import { MAX_LAYOUT_ELEMENTS, nativeLayout, type LayoutItem } from '../core/layout.js';
 
 export type MobileKind = 'click' | 'fill' | 'check' | 'region' | 'scroll';
 

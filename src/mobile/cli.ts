@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { nativeCli } from '../native/cli.js';
+import { nativeCli } from '../suite/native-cli.js';
 import { AppiumAdapter, DEFAULT_APPIUM_URL } from './adapter.js';
 import { MobileSession, runMobileSpec } from './session.js';
 import { loadMobileSpec } from './spec.js';

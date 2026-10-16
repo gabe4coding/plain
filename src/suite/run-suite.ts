@@ -7,7 +7,8 @@ import { createReporters } from './reporters/index.js';
 import { select, listSelected } from './select.js';
 import { schedule, checkSchedule } from './schedule.js';
 import { writeLastRun } from './last-run.js';
-import type { Artifact, Attempt, Loaded, RunObserver, RunReport, SpecReport, SuiteEngine, SuiteOptions } from './types.js';
+import type { Artifact } from '../core/run-contract.js';
+import type { Attempt, Loaded, RunObserver, RunReport, SpecReport, SuiteEngine, SuiteOptions } from './types.js';
 
 type LoadOutcome<S> = { loaded: Loaded<S> } | { report: SpecReport };
 type NamedObserver = { name: string; observer: RunObserver };

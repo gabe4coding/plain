@@ -4,7 +4,7 @@
 
 - `NativeSession` (`session.ts`): Jev targeting via `askSettled`, expect/wait polling, phase timing. Subclasses
   implement `parse`, `label` and `act`.
-- `runNativeSpec` (`run-spec.ts`): hooks → open → steps → teardown → close. `nativeCli` (`cli.ts`).
+- `runNativeSpec` (`run-spec.ts`): hooks → open → steps → teardown → close. `nativeCli` (`src/suite/native-cli.ts`).
 - `src/native/mcp.ts` (`createNativeServer`, `serveNative`) holds the shared step/find/snapshot/ask/read/screenshot/
   save/close tools. Each platform registers its own open and discovery tools first.
 - As in the browser: `step` results carry `changed` (diffed against the step's own first whole-screen capture,

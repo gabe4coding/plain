@@ -1,8 +1,8 @@
 import type { App, Element } from '@crowecawcaw/xa11y';
-import type { Candidate, Frame } from '../core/automation.js';
-import { MAX_CANDIDATES } from '../jev/pick.js';
+import { MAX_CANDIDATES, type Frame } from '../core/automation.js';
+import type { Bounds, Candidate } from '../core/candidate.js';
 import type { CaptureOptions, NativeAdapter } from '../native/session.js';
-import { MAX_LAYOUT_ELEMENTS, nativeLayout, type Bounds, type LayoutItem } from '../core/layout.js';
+import { MAX_LAYOUT_ELEMENTS, nativeLayout, type LayoutItem } from '../core/layout.js';
 
 export type ComputerKind = 'click' | 'fill' | 'check' | 'hover' | 'region' | 'scroll';
 export type ComputerAction = 'click' | 'fill' | 'check' | 'uncheck' | 'hover' | 'dblclick' | 'rightclick' | 'scroll';

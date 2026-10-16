@@ -1,6 +1,6 @@
 import type { ElementHandle, Frame, JSHandle, Locator, Page } from 'playwright';
-import type { Candidate } from '../core/automation.js';
-import { boundsText, joinLayout, LAYOUT_TRUNCATED, MAX_LAYOUT_ELEMENTS, neighborRelations, type LayoutItem } from '../core/layout.js';
+import { boundsText, type Candidate } from '../core/candidate.js';
+import { joinLayout, LAYOUT_TRUNCATED, MAX_LAYOUT_ELEMENTS, neighborRelations, type LayoutItem } from '../core/layout.js';
 import { frameLabel } from './frames.js';
 import { PASSWORD_MASK } from './page.js';
 

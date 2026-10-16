@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { BrowserContext } from 'playwright';
 import { DUMP_DIR, errorMessage, isFailure } from '../core/results.js';
-import type { Artifact, CaptureTarget, Engine, RunObserver, SpecInfo, SuiteOptions } from './types.js';
+import type { Artifact, CaptureTarget, Engine, SpecInfo } from '../core/run-contract.js';
+import type { RunObserver, SuiteOptions } from './types.js';
 
 interface Capture {
   dir: string;

@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 import { errorMessage } from '../core/results.js';
 import { loadEnvFiles } from '../jev/provider.js';
-import { nativeCli } from '../native/cli.js';
+import { nativeCli } from '../suite/native-cli.js';
 import { Xa11yAdapter } from './adapter.js';
 import { ComputerSession, runComputerSpec } from './session.js';
 import { loadComputerSpec, parseComputerStep } from './spec.js';

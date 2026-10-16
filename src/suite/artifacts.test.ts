@@ -7,7 +7,8 @@ import type { Page } from 'playwright';
 import { artifactsObserver } from './artifacts.js';
 import { parseSuiteArgs } from './options.js';
 import { runSuite } from './run-suite.js';
-import type { CaptureTarget, Engine, RunObserver, SpecInfo, SuiteOptions } from './types.js';
+import type { CaptureTarget, Engine, SpecInfo } from '../core/run-contract.js';
+import type { RunObserver, SuiteOptions } from './types.js';
 import type { Status } from '../core/results.js';
 
 const base: SuiteOptions = { files: ['case.yaml'], workers: 1, retries: 0, bail: 0, lastFailed: false,
@@ -22,13 +23,13 @@ function options(dir: string, screenshot: 'off' | 'on-failure' | 'always' = 'on-
   trace: 'off' | 'on-failure' | 'always' = 'off'): SuiteOptions {
   return { ...base, artifacts: { dir, screenshot, trace } };
 }
-function target(engine: Engine = 'browser'): CaptureTarget {
+function target(engine: Engine = 'browser'): CaptureTarget<Page> {
   return { engine, async screenshot(file) { fs.writeFileSync(file, 'PNG'); } };
 }
 async function start(observer: RunObserver, engine: Engine = 'browser', files = [info.file]): Promise<void> {
   await observer.runStart!({ engine, specs: files.map((file) => ({ file, name: file, tags: [] })) });
 }
-async function attempt(observer: RunObserver, capture: CaptureTarget, data = info, status: Status = 'fail') {
+async function attempt(observer: RunObserver, capture: CaptureTarget<Page>, data = info, status: Status = 'fail') {
   await observer.sessionOpen!({ ...data, target: capture });
   await observer.stepEnd!({ ...data, target: capture, index: 0, result: { step: 'expect', status } });
   return observer.sessionClose!({ ...data, target: capture, status });
@@ -175,7 +176,7 @@ test('capture failures warn once, remove partial files, and preserve other evide
   t.mock.method(console, 'error', (message: string) => messages.push(message));
   const observer = artifactsObserver(options(dir, 'always', 'always'))!;
   await start(observer);
-  const capture: CaptureTarget = { engine: 'browser', page() { throw new Error('page gone'); }, async screenshot(file) {
+  const capture: CaptureTarget<Page> = { engine: 'browser', page() { throw new Error('page gone'); }, async screenshot(file) {
     fs.writeFileSync(file, 'partial'); throw new Error('device gone');
   } };
   assert.deepEqual(await attempt(observer, capture), []);
@@ -189,7 +190,7 @@ test('missing dumps and trace stop failures preserve successfully written screen
   t.mock.method(console, 'error', (message: string) => messages.push(message));
   const observer = artifactsObserver(options(dir, 'always', 'always'))!;
   await start(observer);
-  const capture: CaptureTarget = { ...target(), page: () => ({ context: () => ({ tracing: {
+  const capture: CaptureTarget<Page> = { ...target(), page: () => ({ context: () => ({ tracing: {
     async start() {}, async stop(opts: { path: string }) { fs.writeFileSync(opts.path, 'partial'); throw new Error('trace gone'); },
   } }) }) as unknown as Page };
   await observer.sessionOpen!({ ...info, target: capture });
@@ -271,7 +272,7 @@ test('trace start and stop use the original context even after the active page c
     calls.push(opts); if (opts) fs.writeFileSync(opts.path, 'ZIP');
   } };
   let pageChanged = false;
-  const capture: CaptureTarget = { ...target(), page: () => {
+  const capture: CaptureTarget<Page> = { ...target(), page: () => {
     assert.equal(pageChanged, false);
     return { context: () => ({ tracing }) } as unknown as Page;
   } };

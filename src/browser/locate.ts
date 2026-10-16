@@ -1,10 +1,10 @@
 import type { Locator, Page } from 'playwright';
 import { StepKind } from '../core/step-kind.js';
-import { resolveTargets, type Candidate, type ResolvedTarget } from '../core/automation.js';
+import { MAX_CANDIDATES, resolveTargets, type ResolvedTarget } from '../core/automation.js';
+import type { Candidate } from '../core/candidate.js';
 import { isTargetEntry, RECORD_AT, recordedStateNote, saveRecordedState, sha256, targetSlot, type LockRef, type TargetEntry } from '../core/lock.js';
 import { dumpDebug } from '../core/results.js';
 import { fill, mapStrings, parameterize, type RunValues } from '../core/parameters.js';
-import { MAX_CANDIDATES } from '../jev/pick.js';
 import { layoutRelations } from '../core/layout.js';
 import { candidates, elementById, type CandidateKind } from './candidates.js';
 import { settledAsk } from './settled-ask.js';

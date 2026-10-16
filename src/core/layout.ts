@@ -1,21 +1,11 @@
-import type { Candidate } from './automation.js';
+import { boundsText, type Bounds } from './candidate.js';
 
-/** Rendered edges of an element. */
-export type Bounds = NonNullable<Candidate['bounds']>;
 export interface LayoutItem { description: string; name: string; bounds: Bounds }
 
 /** The browser and the native layouts list at most this many elements, in at most this many characters. */
 export const MAX_LAYOUT_ELEMENTS = 254;
 export const MAX_LAYOUT_CHARS = 24_000;
 export const LAYOUT_TRUNCATED = 'Layout truncated: do not infer absence or extremes across omitted elements.';
-
-/**
- * Bounds as Jev reads them: whole pixels. A fraction costs Jev tokens and changes no relation it can judge; measured
- * relations (neighborRelations) use the exact edges.
- */
-const roundBounds = (b: Bounds): Bounds =>
-  ({ left: Math.round(b.left), top: Math.round(b.top), right: Math.round(b.right), bottom: Math.round(b.bottom) });
-export const boundsText = (b: Bounds): string => JSON.stringify(roundBounds(b));
 
 const DIRECTIONS = ['above', 'below', 'left of', 'right of'] as const;
 

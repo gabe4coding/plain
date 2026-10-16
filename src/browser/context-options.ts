@@ -2,7 +2,7 @@ import { devices, type BrowserContextOptions } from 'playwright';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Spec } from '../core/spec.js';
-import type { RunOptions } from './session.js';
+import type { RunOptions } from './run-options.js';
 
 /** Edit distance keeps device suggestions useful for misspellings and nearby versions. */
 function distance(left: string, right: string): number {

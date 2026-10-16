@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { StepKind } from './step-kind.js';
 import type { Step } from './spec.js';
-import type { Candidate } from './automation.js';
+import type { Candidate } from './candidate.js';
 
 export const StatusSchema = z.enum(['pass', 'fail', 'inconclusive', 'error', 'skipped']);
 export type Status = z.infer<typeof StatusSchema>;

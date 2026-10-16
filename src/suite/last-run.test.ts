@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readLastFailed, writeLastRun } from './last-run.js';
-import type { Engine, RunReport, SpecReport } from './types.js';
+import type { Engine } from '../core/run-contract.js';
+import type { RunReport, SpecReport } from './types.js';
 
 const spec = (file: string, status: SpecReport['status'], flaky = false): SpecReport =>
   ({ file, name: file, tags: [], status, flaky, attempts: [] });

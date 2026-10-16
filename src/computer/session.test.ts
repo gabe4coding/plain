@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ComputerSession, runComputerSpec } from './session.js';
-import type { RunObserver } from '../suite/types.js';
+import type { SessionObserver } from '../core/run-contract.js';
 import { loadComputerSpec, parseComputerStep, ComputerTargetSchema } from './spec.js';
 import { matchesKind, captureTree, DESKTOP_COORDINATES, type ComputerAdapter } from './adapter.js';
 import { createComputerServer } from './mcp.js';
@@ -110,7 +110,7 @@ test('native observer: sessionOpen after the adapter opens, a screenshot is safe
   const dir = mkdtempSync(join(tmpdir(), 'native-observer-'));
   const shot = join(dir, 'shots', 'screen.png');
   // Observer errors are swallowed by design, so record and assert after the run instead of asserting inside.
-  const recorder = (adapter: RecordingAdapter): RunObserver => ({
+  const recorder = (adapter: RecordingAdapter): SessionObserver => ({
     async sessionOpen({ target }) { adapter.events.push('sessionOpen'); await target.screenshot(shot); },
     async stepEnd({ result }) { adapter.events.push(`stepEnd ${result.step}`); },
     async sessionClose() { adapter.events.push('sessionClose'); return [{ kind: 'screenshot', path: shot }]; },

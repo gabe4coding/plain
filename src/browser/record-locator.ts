@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Frame, FrameLocator, Locator, Page } from 'playwright';
-import type { Candidate } from '../core/automation.js';
+import type { Candidate } from '../core/candidate.js';
 import { elementById } from './candidates.js';
 import { parameterize, type RunValues } from '../core/parameters.js';
 

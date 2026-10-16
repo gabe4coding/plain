@@ -2,18 +2,19 @@ import type { LoadOptions } from '../core/spec.js';
 import { errorMessage, type TestResult } from '../core/results.js';
 import { loadEnvFiles } from '../jev/provider.js';
 import { warmUp } from '../jev/ask.js';
-import { parseSuiteArgs, UsageError } from '../suite/options.js';
-import { checkSpecTimeoutFlag } from '../suite/spec-timeout.js';
-import { runSuite } from '../suite/run-suite.js';
-import { printValidation } from '../suite/validate.js';
-import type { Engine, RunObserver, SpecInfo, SuiteEngine } from '../suite/types.js';
+import type { Engine, SessionObserver, SpecInfo } from '../core/run-contract.js';
+import { parseSuiteArgs, UsageError } from './options.js';
+import { checkSpecTimeoutFlag } from './spec-timeout.js';
+import { runSuite } from './run-suite.js';
+import { printValidation } from './validate.js';
+import type { SuiteEngine } from './types.js';
 
 type ServerFlags = { server?: string };
 
 export interface NativeCliEngine<S> {
   serve(timeout: number, values: ServerFlags): Promise<void>;
   load(file: string, opts?: LoadOptions): S;
-  run(spec: S, timeout: number, values: ServerFlags, observer?: RunObserver, info?: SpecInfo, specTimeout?: number): Promise<TestResult>;
+  run(spec: S, timeout: number, values: ServerFlags, observer?: SessionObserver, info?: SpecInfo, specTimeout?: number): Promise<TestResult>;
   meta(spec: S): { name: string; tags: string[]; timeoutMs?: number };
 }
 

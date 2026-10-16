@@ -9,7 +9,7 @@ import { NativeSession, type NativeAdapter } from '../native/session.js';
 import { runNativeSpec } from '../native/run-spec.js';
 import { mobileLabel, type MobileStep } from '../mobile/spec.js';
 import { checkSpecTimeoutFlag } from './spec-timeout.js';
-import { specDeadline } from './spec-timeout.js';
+import { specDeadline } from '../core/spec-deadline.js';
 import { checkSpecTimeout, loadSpec, type Spec } from '../core/spec.js';
 import { loadComputerSpec } from '../computer/spec.js';
 import { loadMobileSpec } from '../mobile/spec.js';

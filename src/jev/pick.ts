@@ -1,10 +1,6 @@
-import type { Candidate } from '../core/automation.js';
+import { boundsText, type Candidate } from '../core/candidate.js';
 import { ask, choiceChunks, isTooLong, MAX_CHOICE_OPTIONS, type Question } from './ask.js';
 import { decide } from './decide.js';
-import { boundsText } from '../core/layout.js';
-
-/** At most four parallel requests per pick. Candidates are ordered so that a cut drops nav and footer links first. */
-export const MAX_CANDIDATES = MAX_CHOICE_OPTIONS * 4;
 
 export interface PickResult {
   id: number | null;

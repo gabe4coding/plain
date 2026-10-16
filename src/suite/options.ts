@@ -4,7 +4,8 @@ import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { RUN_MODES, type RunMode } from '../core/lock.js';
 import { loadConfig } from './config.js';
-import { CAPTURE_MODES, type CaptureMode, type Engine, type EngineFlags, type ReporterSpec, type SuiteOptions } from './types.js';
+import type { Engine } from '../core/run-contract.js';
+import { CAPTURE_MODES, type CaptureMode, type EngineFlags, type ReporterSpec, type SuiteOptions } from './types.js';
 
 interface ParsedSuiteArgs { command: 'run' | 'mcp' | 'validate'; opts: SuiteOptions; flags: EngineFlags }
 

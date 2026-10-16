@@ -1,21 +1,16 @@
 import { z } from 'zod';
-import { ask, isTooLong } from '../jev/ask.js';
+import { ask, isTooLong, MAX_CHOICE_OPTIONS } from '../jev/ask.js';
 import { decide } from '../jev/decide.js';
 import { describeSnapshot } from '../jev/describe.js';
 import { judge } from '../jev/judge.js';
 import { pickElements } from '../jev/pick.js';
+import type { Candidate } from './candidate.js';
 import { dumpDebug, topGuesses } from './results.js';
 
 // What every engine (browser, desktop, mobile) shows Jev. Element handles stay inside the adapters.
 
-export const CandidateSchema = z.object({
-  id: z.number(),
-  desc: z.string(),
-  frameIndex: z.number().optional(),
-  /** Rendered edges, requested for spatial targets: main viewport CSS pixels in the browser, screen coordinates on native. */
-  bounds: z.object({ left: z.number(), top: z.number(), right: z.number(), bottom: z.number() }).optional(),
-});
-export type Candidate = z.infer<typeof CandidateSchema>;
+/** At most four parallel requests per pick. Candidates are ordered so that a cut drops nav and footer links first. */
+export const MAX_CANDIDATES = MAX_CHOICE_OPTIONS * 4;
 
 export const SnapshotSchema = z.object({
   url: z.string(),

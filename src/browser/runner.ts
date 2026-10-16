@@ -1,16 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Page } from 'playwright';
 import type { Spec } from '../core/spec.js';
 import { interpolate } from '../core/interpolate.js';
 import { parametersOf } from '../core/parameters.js';
 import { startHooks, type HooksRunner } from '../core/hooks.js';
 import { errorMessage, isFailure, label, type Status, type StepResult, type TestResult } from '../core/results.js';
-import { observerCalls } from '../suite/observe.js';
-import { specDeadline } from '../suite/spec-timeout.js';
-import type { CaptureTarget, RunObserver, SpecInfo } from '../suite/types.js';
+import { observerCalls } from '../core/observe.js';
+import { specDeadline } from '../core/spec-deadline.js';
+import type { CaptureTarget, SessionObserver, SpecInfo } from '../core/run-contract.js';
 import { runStepSafely } from './steps.js';
 import { prepareEvidence } from './evidence.js';
-import { openSession, type RunOptions, type Session } from './session.js';
+import { openSession, type Session } from './session.js';
+import type { RunOptions } from './run-options.js';
 
 /** A capture can hang on a page that a step cut by the spec timeout still holds. */
 const SCREENSHOT_TIMEOUT_MS = 10_000;
@@ -19,7 +21,7 @@ const SCREENSHOT_TIMEOUT_MS = 10_000;
  * Hooks child → browser session → setup → steps (interpolated with env and setup data) → teardown → save state →
  * close. A setup error ends the run with a single `setup` step and no teardown; a teardown error makes it `error`.
  */
-export async function runSpec(spec: Spec, opts: RunOptions, observer?: RunObserver, info?: SpecInfo): Promise<TestResult> {
+export async function runSpec(spec: Spec, opts: RunOptions, observer?: SessionObserver<Page>, info?: SpecInfo): Promise<TestResult> {
   const deadline = specDeadline(spec.timeout ?? opts.specTimeout);
   const steps: StepResult[] = [];
   let jevCalls = 0;
@@ -123,7 +125,7 @@ export async function runSpec(spec: Spec, opts: RunOptions, observer?: RunObserv
   return resultWith(overall);
 }
 
-function captureTarget(session: Session, cdp: boolean): CaptureTarget {
+function captureTarget(session: Session, cdp: boolean): CaptureTarget<Page> {
   return {
     engine: 'browser',
     cdp,

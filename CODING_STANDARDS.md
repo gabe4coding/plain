@@ -79,13 +79,15 @@ Most tests sit next to their module. Code that several callers share is often te
 a test, search the `*.test.ts` files for the exports you changed. Details live in each module's comments.
 
 - `src/cli.ts`, `src/computer/cli.ts`, `src/mobile/cli.ts` — the `plain`, `plain-computer` and `plain-mobile` CLIs.
-- `src/core/` — engine-independent: spec schemas and loading, what every engine shows Jev (`automation.ts`),
-  results, hooks, run modes and lock files, the parts all MCP servers share (`save`, `read`, `changed`, snapshot
-  views), spatial evidence and layout text.
+- `src/core/` — engine-independent: spec schemas and loading, what every engine shows Jev (`automation.ts`;
+  `candidate.ts` imports nothing from `src/`, so `src/jev/` can use it), the run contract between the suite and
+  each engine (`run-contract.ts`, `observe.ts`, `spec-deadline.ts`), results, hooks, run modes and lock files, the
+  parts all MCP servers share (`save`, `read`, `changed`, snapshot views), spatial evidence and layout text.
 - `src/jev/` — the model: providers and keys, the one request path (`ask.ts`), picks, judgments, thresholds
   (`decide.ts`), snapshot classification.
 - `src/browser/` — the Playwright engine: session, runner, step handlers, settling, targets (`locate.ts`: replay,
   heal, record; tested in `lock.test.ts`), claims, snapshots, the browser MCP server (`mcp.ts`).
 - `src/native/` — the core desktop and mobile share; `src/computer/` and `src/mobile/` — each platform on top of it.
 - `src/suite/` — what the three CLIs share for spec suites: options, config, selection, scheduling and retries,
-  `validate`, reporters, artifacts.
+  `validate`, reporters, artifacts, the desktop and mobile CLI (`native-cli.ts`). Of the engine folders, only the CLIs
+  import from it.

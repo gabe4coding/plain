@@ -1,7 +1,7 @@
-import { errorMessage } from '../core/results.js';
-import type { RunObserver, SpecInfo } from './types.js';
+import { errorMessage } from './results.js';
+import type { SessionObserver, SpecInfo } from './run-contract.js';
 
-export function observerCalls(observer: RunObserver | undefined, info: SpecInfo) {
+export function observerCalls(observer: SessionObserver | undefined, info: SpecInfo) {
   let warned = false;
   const call = async <T>(name: 'sessionOpen' | 'stepEnd' | 'sessionClose', event: object): Promise<T | undefined> => {
     const fn = observer?.[name] as ((event: object) => Promise<T>) | undefined;

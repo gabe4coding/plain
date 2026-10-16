@@ -2,7 +2,7 @@ import { interpolate } from '../core/interpolate.js';
 import type { StepResult } from '../core/results.js';
 import { NativeSession } from '../native/session.js';
 import { runNativeSpec } from '../native/run-spec.js';
-import type { RunObserver, SpecInfo } from '../suite/types.js';
+import type { SessionObserver, SpecInfo } from '../core/run-contract.js';
 import { parseMobileStep, validateMobileStep, mobileLabel, type MobileStep, type MobileSpec, type Direction } from './spec.js';
 import { HiddenTargetError } from '../core/automation.js';
 import type { MobileAdapter, MobileAction } from './adapter.js';
@@ -73,7 +73,7 @@ export class MobileSession<T = unknown> extends NativeSession<T, MobileKind, Mob
   }
 }
 
-export function runMobileSpec<T>(spec: MobileSpec, session: MobileSession<T>, observer?: RunObserver, info?: SpecInfo, specTimeout?: number) {
+export function runMobileSpec<T>(spec: MobileSpec, session: MobileSession<T>, observer?: SessionObserver, info?: SpecInfo, specTimeout?: number) {
   return runNativeSpec(spec, session as MobileSession, async (vars) => {
     const target = { platform: spec.platform, device: spec.device, app: spec.app, capabilities: spec.capabilities };
     const { steps, ...resolvedTarget } = interpolate({ ...target, steps: spec.steps }, vars, spec.name);
