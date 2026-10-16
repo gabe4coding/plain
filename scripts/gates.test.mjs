@@ -24,7 +24,7 @@ const FLOORS = {
   'pick cases (scripts/pick-cases.json)': 62,
   'read cases (scripts/read-cases.json)': 23,
   'routing cases (scripts/routing-cases.json)': 13,
-  'planner cases (scripts/planner-cases.json)': 57,
+  'planner cases (scripts/planner-cases.json)': 59,
 };
 
 // Files that may skip, with the hit count and the line that limits the skip to a platform the test cannot run on.
