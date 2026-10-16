@@ -10,9 +10,9 @@ export interface Artifact { kind: 'screenshot' | 'trace' | 'dump'; path: string;
 
 /**
  * What an observer can capture: a screenshot, and for the browser the page (for tracing). `P` is the page type, so
- * core needs no Playwright import.
+ * core needs no Playwright import; it defaults to `never`, so a desktop or mobile target cannot return a page.
  */
-export interface CaptureTarget<P = unknown> {
+export interface CaptureTarget<P = never> {
   engine: Engine;
   /** An attached browser context: tracing would also record the user's other tabs. */
   cdp?: boolean;
@@ -29,8 +29,8 @@ export interface SpecInfo {
   lock?: LockAttempt;
 }
 
-/** The observer events an engine fires during one spec attempt. */
-export interface SessionObserver<P = unknown> {
+/** The observer events an engine fires during one spec attempt; `P` as in `CaptureTarget`. */
+export interface SessionObserver<P = never> {
   /**
    * The target can be captured; fires before the first step. Browser: right after the context opens, before
    * setup. Desktop and mobile: after setup and `open()`, since setup may choose the app or the device. `stepEnd`

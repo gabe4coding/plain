@@ -88,5 +88,13 @@
     "expect": [
       "--e2e|e2e/site\\.mjs"
     ]
+  },
+  {
+    "id": "gate-floor",
+    "question": "An e2e spec in e2e/ covers a feature we removed, so I delete the spec file. What else must I change in the same change?",
+    "expect": [
+      "gates\\.test\\.mjs",
+      "floor"
+    ]
   }
 ]

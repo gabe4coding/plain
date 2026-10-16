@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { parse } from 'yaml';
-import { errorMessage } from './results.js';
+import { errorMessage } from './error-message.js';
 
 /**
  * Where an expanded step was written: its file (relative to the root spec's folder; undefined for the root spec
