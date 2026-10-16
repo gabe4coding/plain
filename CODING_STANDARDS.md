@@ -92,5 +92,8 @@ a test, search the `*.test.ts` files for the exports you changed. Details live i
   heal, record; tested in `lock.test.ts`), claims, snapshots, the browser MCP server (`mcp.ts`).
 - `src/native/` — the core desktop and mobile share; `src/computer/` and `src/mobile/` — each platform on top of it.
 - `src/suite/` — what the three CLIs share for spec suites: options, config, selection, scheduling and retries,
-  `validate`, reporters, artifacts, the desktop and mobile CLI (`native-cli.ts`). Of the engine folders, only the CLIs
-  import from it.
+  `validate`, reporters, artifacts, the desktop and mobile CLI (`native-cli.ts`). Of the engine folders, only the
+  desktop and mobile CLIs import from it, outside tests.
+
+`npm run check:deps` fails on an import that crosses these folders the wrong way or closes a cycle, type-only
+imports included. Before you add an import between two folders, read the allowed graph in `.dependency-cruiser.cjs`.

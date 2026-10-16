@@ -38,7 +38,7 @@ export type StepResult = z.infer<typeof StepResultSchema>;
 /** One run of one spec, by any engine. */
 export interface TestResult { name: string; status: Status; steps: StepResult[]; jevCalls: number; totalTokens: number }
 
-export const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+export { errorMessage } from './error-message.js';
 
 /** A step detail with a note in parentheses at its end: "→ button "Go" (healed; …)". */
 export const noted = (detail: string | undefined, note: string): string => `${detail ? `${detail} ` : ''}(${note})`;

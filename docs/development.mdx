@@ -20,12 +20,13 @@ npm test         # build, then run the tests in dist/**/*.test.js and scripts/*.
 npm run check:docs
 npm run check:agent-notes
 npm run check:source
+npm run check:deps
 npm run test:mods  # the session pane mod tests (claude plugin test). Needs the claude CLI. Not in npm test
-npm run verify   # the key-free gate: tests, docs, source rules, examples, package and plugin install
+npm run verify   # the key-free gate: tests, docs, source rules, module boundaries, examples, package and plugin install
 ```
 
 `npm run verify` runs `npm test`, `npm run check:docs`, `npm run check:agent-notes`, `npm run check:source`,
-`npm run check:examples` and `npm run test:plugins`. The CI workflow runs the same command.
+`npm run check:deps`, `npm run check:examples` and `npm run test:plugins`. The CI workflow runs the same command.
 
 `npm run check:examples` validates the specs in `examples/`, `examples/mobile/` and `e2e/`. It also validates
 each full spec and config example in the user docs, with the CLI of its engine.
@@ -49,6 +50,12 @@ result or when the rule checks no file.
 A ratchet rule fails when it has no count in `scripts/source-rules/baseline.json`, or when it finds more hits than
 that count. If it finds fewer hits, it prints the new count. Then write that count in the file. The header of
 `scripts/check-source.mjs` gives the format of a rule.
+
+`npm run check:deps` checks the imports between the folders of `src/` with dependency-cruiser. It fails on an import
+cycle and on each import that the rules in `.dependency-cruiser.cjs` do not allow. Type-only imports count too. A
+test file can import from all folders, but other code must not import a test file. The comment at the top of
+`.dependency-cruiser.cjs` shows the allowed imports between the folders. A new folder in `src/` fails until it has
+rules in that file. `scripts/check-deps.test.mjs` makes sure that each rule still finds a planted import.
 
 `npm test` needs no API key and no native SDK. It runs these tests:
 
