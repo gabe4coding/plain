@@ -53,7 +53,8 @@ A full example is in `examples/login-dataset.yaml`, `examples/hooks/login-datase
    browser, it also replaces them in `url`.
 3. The steps run.
 4. `teardown({ spec, data, result })` runs after the steps, whether they passed, failed or ended in an error.
-   `data` is what `setup` returned. `result` is `{ status, steps }` for the attempt so far.
+   `data` is what `setup` returned. `result` is `{ status, steps }` for the attempt so far. `status` is the
+   status of the first step that did not pass and was not skipped. If no step failed, `status` is `pass`.
 
 - `setup` must return an object, or nothing. Any other value is an error: `setup must return an object`.
 - Both exports are optional. An export that is not a function is an error.
@@ -103,3 +104,7 @@ database connection or a shared test account. You must control access to them, a
 ## Hooks in agent mode
 
 To use hooks in agent mode, give `hooks` to the `open` tool. See [agent mode](agent-mode.mdx).
+
+In agent mode, `steps` holds the steps since the `open` call that loaded the hooks. The steps continue after a
+failed step, but the `status` rule stays the same. If a step fails and a later step passes, `teardown` gets the
+status of the failed step, not `pass`.

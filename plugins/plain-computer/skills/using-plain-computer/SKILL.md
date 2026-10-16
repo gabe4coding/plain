@@ -81,7 +81,7 @@ uncheck: "the Enable preview checkbox"
 hover: "the help icon"
 dblclick: "the document icon"
 rightclick: "the first row"
-scroll: "down: the results list" # up: also supported; one wheel movement, not scroll-to-end
+scroll: "down: the results list" # up:, left:, right: also supported; one wheel movement, not scroll-to-end
 press: "Control+a" # use Meta for Command on macOS; native key names are platform dependent
 drag: {source: "the first row", target: "the destination folder"}
 expect: ["The preview says hello", "The preview checkbox is checked"]

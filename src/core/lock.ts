@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StepSource } from './spec.js';
-import { DUMP_DIR, errorMessage } from './results.js';
+import { DUMP_DIR, errorMessage, type StepResult } from './results.js';
 
 /*
  * Run modes and lock files (docs/running.mdx "Run modes"). A passing run records what each step needed from Jev:
@@ -200,7 +200,7 @@ export class LockAttempt {
   }
 
   /** Ends a step: its records are kept when it passed; replayed and healed steps are counted. */
-  endStep(result: { status: string; replayed?: boolean; healed?: boolean }): void {
+  endStep(result: Pick<StepResult, 'status' | 'replayed' | 'healed'>): void {
     if (result.status === 'pass') this.kept.push(...this.step);
     this.step = [];
     if (result.status === 'pass' && result.healed) this.healed++;

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { plan, candidates, readings, spans, keysFrom, rest, type Ask } from './planner.js';
 import type { AskAnswer, Question } from '../jev/ask.js';
+import { parseComputerStep } from './spec.js';
 
 test('keysFrom maps spoken keys to Playwright names', () => {
   assert.equal(keysFrom('command S'), 'Meta+s');
@@ -91,6 +92,21 @@ test('plan: a piece that is not an instruction after a failed one is joined back
   const { items } = await plan('write inside the text field, hello, how are you?', ask);
   assert.equal(routes, 2);
   assert.deepEqual(items, [{ kind: 'step', step: { fill: { target: 'the text field', value: 'hello, how are you' } }, risky: false }]);
+});
+
+test('plan: every scroll direction Jev can pick gives a step the desktop runs', async () => {
+  for (const direction of ['Left', 'Right', 'Up', 'Down']) {
+    const ask = fake([
+      [/What does/, () => ({ choice: 'scroll', probabilities: { scroll: 1 }, confidence: 1 })],
+      [/in which direction/, (q) => option(q, direction)],
+      [/control or field/, (q) => option(q, 'the list')],
+    ]);
+    const { items } = await plan(`scroll ${direction.toLowerCase()} in the list`, ask);
+    assert.deepEqual(items, [{ kind: 'step', step: { scroll: `${direction.toLowerCase()}: the list` }, risky: false }]);
+    // What `plain-computer do` runs: the step goes through the desktop parser before the first action.
+    const step = items[0].kind === 'step' ? items[0].step : {};
+    assert.deepEqual(parseComputerStep(step), { kind: 'scroll', target: `${direction.toLowerCase()}: the list`, optional: false });
+  }
 });
 
 test('rest: the text of a fill is what is left without the verb and the field', () => {

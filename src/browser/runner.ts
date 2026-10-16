@@ -5,7 +5,7 @@ import type { Spec } from '../core/spec.js';
 import { interpolate } from '../core/interpolate.js';
 import { parametersOf } from '../core/parameters.js';
 import { startHooks, type HooksRunner } from '../core/hooks.js';
-import { errorMessage, isFailure, label, type Status, type StepResult, type TestResult } from '../core/results.js';
+import { errorMessage, isFailure, label, overallStatus, type Status, type StepResult, type TestResult } from '../core/results.js';
 import { observerCalls } from '../core/observe.js';
 import { specDeadline } from '../core/spec-deadline.js';
 import type { CaptureTarget, SessionObserver, SpecInfo } from '../core/run-contract.js';
@@ -100,7 +100,7 @@ export async function runSpec(spec: Spec, opts: RunOptions, observer?: SessionOb
     if (hooks) {
       try {
         if (hooks.has.teardown) {
-          await hooks.teardown({ spec, data, result: { status: overall, steps } });
+          await hooks.teardown({ spec, data, result: { status: overallStatus(steps), steps } });
           await record({ step: 'teardown', status: 'pass' });
         }
       } catch (error) {

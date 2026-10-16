@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { startHooks, type HooksRunner, type HookSpec } from '../core/hooks.js';
 import type { PlaceholderValues } from '../core/interpolate.js';
-import { isFailure, type Status, type StepResult, type TestResult } from '../core/results.js';
+import { isFailure, overallStatus, type Status, type StepResult, type TestResult } from '../core/results.js';
 import { observerCalls } from '../core/observe.js';
 import { specDeadline } from '../core/spec-deadline.js';
 import type { CaptureTarget, SessionObserver, SpecInfo } from '../core/run-contract.js';
@@ -66,7 +66,7 @@ export async function runNativeSpec<S extends NativeStep, P extends NativeSpec<S
     await record({ step: setupDone ? 'open/interpolate' : 'setup', status, detail: String(error) });
   } finally {
     try {
-      if (setupDone && hooks?.has.teardown) await hooks.teardown({ spec, data, result: { status, steps } });
+      if (setupDone && hooks?.has.teardown) await hooks.teardown({ spec, data, result: { status: overallStatus(steps), steps } });
     } catch (error) {
       status = 'error';
       await record({ step: 'teardown', status, detail: String(error) });
