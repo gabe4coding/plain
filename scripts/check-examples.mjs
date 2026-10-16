@@ -1,7 +1,8 @@
 // Checks every spec a user can copy or run, without a key or a session: examples/*.yaml, examples/mobile/*.yaml,
 // e2e/*.yaml, and each full spec and config example in the user docs (.claude/skills/writing-docs/SKILL.md
 // "Content": full spec examples must pass `validate`, config examples must pass `--list`). Each spec goes to the CLI
-// of its engine: `platform:` is mobile, `app:` is desktop, the rest is the browser. Build first (npm run build).
+// of its engine: `platform:` is mobile, `app:` is desktop, the rest is the browser. A literal secret that `validate`
+// warns on fails here, except in a `fill` step of a spec tagged `expect-fail`. Build first (npm run build).
 //   node scripts/check-examples.mjs
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { literalSecrets } from './example-secrets.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = { browser: 'dist/cli.js', desktop: 'dist/computer/cli.js', mobile: 'dist/mobile/cli.js' };
@@ -27,6 +29,11 @@ const engineOf = (text) => /^platform:/m.test(text) ? 'mobile' : /^app:/m.test(t
 function run(engine, args, cwd = root, label = args.at(-1)) {
   const out = spawnSync(process.execPath, [join(root, CLI[engine]), ...args], { cwd, encoding: 'utf8' });
   if (out.status !== 0) problems.push(`${label}: ${engine} ${args[0]} failed\n${(out.stdout + out.stderr).trim()}`);
+  return out.stdout;
+}
+
+function checkSecrets(output, textOf, labelOf = (file) => relative(root, file)) {
+  for (const { file, line } of literalSecrets(output, textOf)) problems.push(`${labelOf(file)}: literal secret\n${line}`);
 }
 
 function checkConfig(dir, text, data, label) {
@@ -43,7 +50,7 @@ function checkConfig(dir, text, data, label) {
 }
 
 for (const [engine, files] of [['browser', [...yamlIn('examples'), ...yamlIn('e2e')]], ['mobile', yamlIn('examples/mobile')]]) {
-  run(engine, ['validate', ...files], root, `${engine} files`);
+  checkSecrets(run(engine, ['validate', ...files], root, `${engine} files`), (file) => readFileSync(file, 'utf8'));
 }
 
 const scratch = mkdtempSync(join(tmpdir(), 'plain-doc-examples-'));
@@ -76,7 +83,7 @@ try {
     }
     specs.forEach(({ text, label }, i) => {
       writeFileSync(join(dir, `spec-${i}.yaml`), text);
-      run(engineOf(text), ['validate', `spec-${i}.yaml`], dir, label);
+      checkSecrets(run(engineOf(text), ['validate', `spec-${i}.yaml`], dir, label), () => text, () => label);
     });
     checked += specs.length;
   }

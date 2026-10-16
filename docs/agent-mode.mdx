@@ -235,8 +235,8 @@ These variables work in the browser, desktop and mobile MCP servers:
 | `PLAIN_CHANGES=0` | `step` and `batch` results have no `changed` field. |
 | `PLAIN_READ=0` | The server does not offer the `read` tool. |
 
-The desktop and mobile servers read the env files too late for `PLAIN_READ`. For them, set it in the
-environment of the process.
+Set them in the environment of the process or in an env file. Refer to
+[where plain reads the key](getting-started.mdx#where-plain-reads-the-key).
 
 ## Session pane in Claude Code
 

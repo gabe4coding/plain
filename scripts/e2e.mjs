@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { startSite, USER } from '../e2e/site.mjs';
+import { AUTH, startSite, USER } from '../e2e/site.mjs';
 
 const { values } = parseArgs({ options: {
   retries: { type: 'string', default: '1' },
@@ -38,7 +38,7 @@ const problems = [];
 const notes = [];
 
 const site = await startSite();
-const env = { ...process.env, PLAIN_E2E_SITE: site.url };
+const env = { ...process.env, PLAIN_E2E_SITE: site.url, PLAIN_E2E_AUTH_PASS: AUTH.pass };
 // Async on purpose: the site is served from this process, so a sync child would block every request it makes.
 // --mode judge unless a check says otherwise: every pick goes to Jev (a replayed locator would test the lock, not Jev).
 const runCli = (args, extraEnv = {}, mode = 'judge') => new Promise((done, fail) => spawn(process.execPath,

@@ -5,13 +5,15 @@ export interface ValidationResult { file: string; error?: string; warnings: stri
 
 /**
  * Loads each file (includes expanded, schemas checked) and checks its placeholders, without a key, a session or the
- * hooks module. An absent `$VAR` leaf is a warning here, where a run fails on it.
+ * hooks module. An absent `$VAR` leaf is a warning here, where a run fails on it. A literal credential (a secret
+ * `fill` value, `auth` or `env` key) is a warning too: a run uses it, but it belongs in the environment.
  */
 export function validate<S>(engine: SuiteEngine<S>, files: string[]): ValidationResult[] {
   return files.map((file) => {
     const warnings: string[] = [];
+    const warn = (message: string) => warnings.push(message);
     try {
-      const spec = engine.load(file, { onMissingEnv: (message) => warnings.push(message) });
+      const spec = engine.load(file, { onMissingEnv: warn, onLiteralSecret: warn });
       checkPlaceholders(spec);
       return { file, warnings };
     } catch (error) {

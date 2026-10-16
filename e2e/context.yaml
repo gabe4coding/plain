@@ -2,7 +2,7 @@ name: HTTP basic auth and emulated geolocation
 url: ${env.site}
 env:
   site: $PLAIN_E2E_SITE
-auth: { user: admin, pass: admin }
+auth: { user: admin, pass: $PLAIN_E2E_AUTH_PASS }
 geolocation: { lat: 45.4642, lon: 9.19 }
 steps:
   - goto: /basic-auth

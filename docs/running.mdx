@@ -349,12 +349,34 @@ strings:
 - `${hooks.*}` is not checked.
 - Any other placeholder namespace is an error.
 
+`validate` also gives a warning for a literal credential. A literal credential is a value in the spec file that
+does not come from the environment or a hook:
+
+- A `fill` step with a secret target and a value that has text outside its `${...}` placeholders. Thus
+  `hunter2${env.suffix}` gives a warning, and `${env.password}` does not.
+- An `auth` or `env` key with a secret name and a text value without a leading `$`. An empty text does not
+  count. In `env`, a number value also counts.
+- A value at any depth below a secret `env` key.
+- A value in a list, at any depth, below a secret key or with a secret key in a list item. plain does not
+  replace a `$NAME` in a list, so it is also a literal there.
+
+A secret target or key contains `password`, `passwd`, `passphrase`, `passcode`, `secret`, `token`, `credential`
+or `apikey`. `api_key` and `api key` also match. Upper case and lower case letters are the same here. `pin` is
+also secret as a word or as a part of a name, for example `PIN`, `user_pin` or `pinCode`, but not in `spinner`.
+A key that ends with `pass` is also secret, for example `pass` or `db_pass`.
+
+To remove the warning, put a `$VAR` value in `env` and use it in the step as `${env.*}`. See
+[values from the environment](spec-reference.mdx#values-from-the-environment).
+
 `validate` does not open a session, run hooks or ask for an API key. It does not check device presets, stored
 browser state or hook exports. Selection options do not filter it. It prints one line for each file:
 
 ```text
 ✔ tests/login.yaml
+✔ tests/secret.yaml
 ! tests/secret.yaml: tests/secret.yaml: "env.password" references $TEST_PASSWORD but that env var is not set
+✔ tests/admin.yaml
+! tests/admin.yaml: tests/admin.yaml: step 2 fills "the Password field" with a literal secret (use ${env.*} and a $VAR in the env block)
 ✘ tests/broken.yaml: ${env.unknown} is not defined (use ${env.*} from the spec's env block)
 ```
 

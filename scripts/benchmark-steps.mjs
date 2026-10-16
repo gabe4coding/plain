@@ -26,7 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { parse as parseYaml } from 'yaml';
-import { startSite } from '../e2e/site.mjs';
+import { AUTH, startSite } from '../e2e/site.mjs';
 
 const { values, positionals } = parseArgs({
   options: { cli: { type: 'string', default: 'dist/cli.js' }, runs: { type: 'string', default: '3' }, out: { type: 'string' }, compare: { type: 'string' },
@@ -58,7 +58,7 @@ function e2eSpecs() {
 
 // Async on purpose: with --e2e the site is served from this process, so a sync child would block every request it makes.
 const site = values.e2e ? await startSite() : null;
-const env = { ...process.env, ...(site && { PLAIN_E2E_SITE: site.url }) };
+const env = { ...process.env, ...(site && { PLAIN_E2E_SITE: site.url, PLAIN_E2E_AUTH_PASS: AUTH.pass }) };
 const runCli = (args, extraEnv = {}) => new Promise((done, fail) => {
   const child = spawn('node', args, { env: { ...env, ...extraEnv }, stdio: ['ignore', 'pipe', 'ignore'] });
   let stdout = '';

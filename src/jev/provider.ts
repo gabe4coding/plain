@@ -25,19 +25,23 @@ export function loadEnvFiles(): void {
   }
 }
 
+/** The key of `chosen`, read on each call: the `.env` files load after the modules. */
+export const apiKey = (chosen: Provider, env: NodeJS.ProcessEnv = process.env): string | undefined =>
+  env[KEY_BY_PROVIDER[chosen]];
+
 export function selectProvider(env: NodeJS.ProcessEnv = process.env): Provider {
   const requested = env.JEV_PROVIDER;
   if (requested !== undefined) {
     if (requested !== 'typesafe' && requested !== 'gateway') {
       throw new Error(`JEV_PROVIDER must be "typesafe" or "gateway", got "${requested}".`);
     }
-    if (!env[KEY_BY_PROVIDER[requested]]) {
+    if (!apiKey(requested, env)) {
       throw new Error(`JEV_PROVIDER=${requested} requires ${KEY_BY_PROVIDER[requested]} to be set.`);
     }
     return requested;
   }
-  if (env.TYPESAFE_API_KEY) return 'typesafe';
-  if (env.AI_GATEWAY_API_KEY) return 'gateway';
+  if (apiKey('typesafe', env)) return 'typesafe';
+  if (apiKey('gateway', env)) return 'gateway';
   throw new Error(
     'Set TYPESAFE_API_KEY (TypeSafe direct) or AI_GATEWAY_API_KEY (Vercel AI Gateway) in the environment, ' +
       `in ${USER_ENV_FILE}, or in a .env file in the current directory.`

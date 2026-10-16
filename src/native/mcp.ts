@@ -12,8 +12,8 @@ import { startHooks, placeholderPaths, type HooksRunner, type HookSpec } from '.
 import { overallStatus, type StepResult } from '../core/results.js';
 import { serialQueue } from '../core/serial-queue.js';
 import { jsonResult as ok, askResult, AskClaims, ASK_DESCRIPTION } from '../core/mcp-result.js';
-import { ariaChanges, CHANGES_ENABLED, CHANGES_NOTE, type AriaChanges } from '../core/aria-changes.js';
-import { READ_ENABLED, READ_DESCRIPTION } from '../core/read.js';
+import { ariaChanges, changesEnabled, changesNote, type AriaChanges } from '../core/aria-changes.js';
+import { readEnabled, READ_DESCRIPTION } from '../core/read.js';
 import type { AnyNativeSession } from './session.js';
 
 type Spec = HookSpec & { hooks?: string; goal?: string };
@@ -129,7 +129,7 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
   const capturesBeforeActing = (step: { kind: string }) => !['press', 'swipe', 'mouse'].includes(step.kind);
 
   async function screenBefore(step: { kind: string; within?: string }): Promise<Snapshot | null> {
-    if (!CHANGES_ENABLED) return null;
+    if (!changesEnabled()) return null;
     // Only a claim over the whole screen is sure to look first with an exact capture.
     const exactFirst = ['expect', 'wait'].includes(step.kind) && !step.within;
     const needsOwnCapture = !capturesBeforeActing(step) || (adapter.approximateTargets && !lastScreen && !exactFirst);
@@ -143,7 +143,7 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
   }
 
   server.registerTool('step', {
-    description: config.describe.step + CHANGES_NOTE,
+    description: config.describe.step + changesNote(),
     inputSchema: { step: z.record(z.string(), z.unknown()) },
   }, ({ step }) => queue(async () => {
     requireOpen();
@@ -156,7 +156,7 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
     recorder.endStep(result);
     results.push(result);
     if (result.status === 'pass') transcript.push(await asSaved(step, parsed as { kind: string; value?: string }));
-    const changed = CHANGES_ENABLED ? await changesSince(ownBaseline ?? session.firstSnapshot ?? lastScreen) : {};
+    const changed = changesEnabled() ? await changesSince(ownBaseline ?? session.firstSnapshot ?? lastScreen) : {};
     return ok({ ...result, jevTokens: session.tokens - tokensBefore, ...changed });
   }));
 
@@ -210,7 +210,7 @@ export function createNativeServer<S extends Spec>(config: NativeServerConfig<S>
     return ok({ ...askResult(claims, probabilities, snapshot), jevTokens: session.tokens - tokensBefore, ms });
   }));
 
-  if (READ_ENABLED) server.registerTool('read', {
+  if (readEnabled()) server.registerTool('read', {
     description: READ_DESCRIPTION,
     inputSchema: { question: z.string().min(1), within: z.string().min(1).optional() },
     annotations: { readOnlyHint: true },

@@ -76,7 +76,19 @@ const FileSpecSchema = SpecSchema.omit({ dir: true, steps: true }).extend({
   steps: z.array(z.unknown()).min(1),
 }).strict();
 
-export interface LoadOptions { onMissingEnv?: (message: string) => void }
+export interface LoadOptions {
+  onMissingEnv?: (message: string) => void;
+  /** A credential written in the spec file: a `fill` of a secret target, or a secret `auth`/`env` key, with a literal value. */
+  onLiteralSecret?: (message: string) => void;
+}
+
+const SECRET_WORD = /passw(or)?d|passphrase|passcode|secret|token|api.?key|credential/i;
+/** `pin` as a word or a name part (`PIN`, `user_pin`, `pinCode`, `userPin`), never inside a word (`spinner`, `opinion`). */
+const PIN = /(?:^|[^A-Za-z])[Pp][Ii][Nn](?![a-z])|[a-z]Pin(?![a-z])/;
+/** A fill target that names a credential. */
+const isSecretTarget = (text: string) => SECRET_WORD.test(text) || PIN.test(text);
+/** An `auth`/`env` key that names a credential: also `pass`, `db_pass`, `userPass`. */
+const isSecretKey = (key: string) => isSecretTarget(key) || /pass$/i.test(key);
 
 /**
  * Loads a browser spec file. Every schema is strict: an unknown key (top level, `auth`, `geolocation`, `browser`,
@@ -90,14 +102,14 @@ export function loadSpec(path: string, opts?: LoadOptions): Spec {
     auth: raw.auth && (resolveEnvBlock(path, 'auth', raw.auth, opts) as typeof raw.auth),
     env: resolveEnvBlock(path, 'env', raw.env ?? {}, opts),
     hooks: raw.hooks === undefined ? undefined : resolve(dirname(path), raw.hooks),
-    steps: loadSteps(raw.steps, path, (step, file, index) => parseStep(file, index, step)),
+    steps: loadSteps(raw.steps, path, (step, file, index) => parseStep(file, index, step), opts),
   };
   checkSpecTimeout(spec, path);
   return spec;
 }
 
 /** Loads a desktop or mobile spec file: hooks resolved next to it, `$VAR` env leaves resolved, steps parsed. */
-export function loadNativeSpec<R extends { hooks?: string; env: Record<string, unknown>; steps: unknown[] }, S>(file: string,
+export function loadNativeSpec<R extends { hooks?: string; env: Record<string, unknown>; steps: unknown[] }, S extends { kind: string }>(file: string,
   schema: z.ZodType<R>, parseOne: (raw: unknown, where: string, index: number) => S, opts?: LoadOptions) {
   const raw = parseData(schema, parse(readFileSync(file, 'utf8')), file);
   const dir = dirname(resolve(file));
@@ -108,17 +120,31 @@ export function loadNativeSpec<R extends { hooks?: string; env: Record<string, u
     dir,
     hooks: raw.hooks ? resolve(dir, raw.hooks) : undefined,
     env,
-    steps: loadSteps(raw.steps, file, parseOne),
+    steps: loadSteps(raw.steps, file, parseOne, opts),
   };
 }
 
 /** Expands includes and parses each step. Errors name the file and index where the step was written. */
-function loadSteps<S>(rawSteps: unknown[], file: string, parseOne: (raw: unknown, where: string, index: number) => S): S[] {
+function loadSteps<S extends { kind: string }>(rawSteps: unknown[], file: string,
+  parseOne: (raw: unknown, where: string, index: number) => S, opts?: LoadOptions): S[] {
   return expandIncludes(rawSteps, file).map((expanded, i) => {
     const { step, source } = splitSource(expanded);
-    const parsed = withOrigin(step, (raw) => parseOne(raw, source?.file ?? file, source?.index ?? i));
+    const where = source?.file ?? file;
+    const index = source?.index ?? i;
+    const parsed = withOrigin(step, (raw) => parseOne(raw, where, index));
+    checkFillSecret(parsed, `${where}: step ${index}`, opts);
     return withSource(parsed, file, source, i);
   });
+}
+
+/** A `${...}` part comes from the env block or a hook. Any text around it is typed as written in the spec. */
+function checkFillSecret(step: { kind: string }, where: string, opts?: LoadOptions): void {
+  if (step.kind !== StepKind.fill || !('target' in step && 'value' in step)) return;
+  const { target, value } = step;
+  if (typeof target !== 'string' || typeof value !== 'string' || !value.replace(/\$\{[^}]*\}/g, '').trim()) return;
+  if (isSecretTarget(target)) {
+    opts?.onLiteralSecret?.(`${where} fills "${target}" with a literal secret (use \${env.*} and a $VAR in the env block)`);
+  }
 }
 
 const MappingSchema = z.record(z.string(), z.unknown());
@@ -214,19 +240,49 @@ function withSource<S>(parsed: S, root: string, source: { file?: string; index: 
 
 /**
  * `$VAR` in an env or auth value reads process.env.VAR, so no credential sits in the spec file. Any depth: setup
- * data is often nested (`env.user.name`). A plain string passes through unchanged.
+ * data is often nested (`env.user.name`). A plain string passes through unchanged. Under a secret key (`secret`),
+ * every leaf is a credential (`apiKeys: {stripe: ...}`).
  */
-function resolveEnvBlock(path: string, field: string, raw: Record<string, unknown>, opts?: LoadOptions): Record<string, unknown> {
+function resolveEnvBlock(path: string, field: string, raw: Record<string, unknown>, opts?: LoadOptions,
+  secret = false): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
     const childField = `${field}.${key}`;
+    const childSecret = secret || isSecretKey(key);
+    if (Array.isArray(value) && opts?.onLiteralSecret) checkListSecrets(path, childField, value, childSecret, opts.onLiteralSecret);
+    else if (childSecret && isLiteral(value) && !String(value).startsWith('$')) {
+      opts?.onLiteralSecret?.(literalSecretMessage(path, childField));
+    }
     if (typeof value === 'string') resolved[key] = resolveEnvRef(path, childField, value, opts);
     else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      resolved[key] = resolveEnvBlock(path, childField, value as Record<string, unknown>, opts);
+      resolved[key] = resolveEnvBlock(path, childField, value as Record<string, unknown>, opts, childSecret);
     } else resolved[key] = value;
   }
   return resolved;
 }
+
+/**
+ * A `$NAME` inside a list stays text, so every secret value at any depth of a list is literal. `seen`: a YAML alias
+ * can make a list contain itself.
+ */
+function checkListSecrets(path: string, field: string, value: unknown, secret: boolean, warn: (message: string) => void,
+  seen = new Set<object>()): void {
+  if (value !== null && typeof value === 'object') {
+    if (seen.has(value)) return;
+    seen.add(value);
+  }
+  if (Array.isArray(value)) value.forEach((item, i) => checkListSecrets(path, `${field}.${i}`, item, secret, warn, seen));
+  else if (value !== null && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      checkListSecrets(path, `${field}.${key}`, child, secret || isSecretKey(key), warn, seen);
+    }
+  } else if (secret && isLiteral(value)) warn(literalSecretMessage(path, field));
+}
+
+const isLiteral = (value: unknown): boolean => typeof value === 'number' || (typeof value === 'string' && value !== '');
+
+const literalSecretMessage = (path: string, field: string) =>
+  `${path}: "${field}" holds a literal secret (use a $VAR value to read it from the environment)`;
 
 function resolveEnvRef(path: string, field: string, value: string, opts?: LoadOptions): string {
   if (!value.startsWith('$')) return value;

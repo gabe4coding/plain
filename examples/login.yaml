@@ -1,8 +1,11 @@
 name: login works
 url: https://the-internet.herokuapp.com
+# Before a run, set DEMO_PASSWORD to the demo password that the login page shows (see .env.example).
+env:
+  password: $DEMO_PASSWORD
 steps:
   - goto: /login
   - fill: { target: "the username field", value: "tomsmith" }
-  - fill: { target: "the password field", value: "SuperSecretPassword!" }
+  - fill: { target: "the password field", value: "${env.password}" }
   - click: "the login button"
   - expect: "the user is logged in and sees a success message"

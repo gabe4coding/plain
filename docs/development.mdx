@@ -29,7 +29,9 @@ npm run verify   # the key-free gate: tests, docs, source rules, module boundari
 `npm run check:deps`, `npm run check:examples` and `npm run test:plugins`. The CI workflow runs the same command.
 
 `npm run check:examples` validates the specs in `examples/`, `examples/mobile/` and `e2e/`. It also validates
-each full spec and config example in the user docs, with the CLI of its engine.
+each full spec and config example in the user docs, with the CLI of its engine. A literal credential that
+`validate` warns about fails the check. Only a `fill` step in a spec with the `expect-fail` tag can type a literal
+wrong password.
 
 `npm run check:docs` checks the user docs: README.md, `docs/*.mdx` and `examples/mobile/README.md`. Each file must
 compile as MDX and show correctly on GitHub. The text must follow the ASD-STE100 rules that a script can test, for
@@ -399,7 +401,8 @@ A pass on the simulator does not prove physical iPhone or React Native parity.
 
 Build first. Most benchmarks ask Jev about saved pages or saved cases: they need an API key, but no site.
 `benchmark-mcp.mjs`, and `benchmark-steps.mjs` without `--e2e`, also need the public demo sites, so a site problem
-can fail a run. `benchmark-locators.mjs` needs no API key. `benchmark-snapshots.mjs` needs one only with `--live-jev`.
+can fail a run. `benchmark-steps.mjs` without `--e2e` also needs `DEMO_PASSWORD` and `DEMO_BASIC_PASS` for two
+examples: copy them from `.env.example` into your `.env`. `benchmark-locators.mjs` needs no API key. `benchmark-snapshots.mjs` needs one only with `--live-jev`.
 
 To compare a change against a saved run, run `benchmark-steps.mjs` with `--e2e`:
 
@@ -422,7 +425,8 @@ step is then the result of plain or Jev, not of the network.
 - `--mode judge` sends each pick and claim to Jev. `--mode no-judge` measures the step overhead with no Jev call.
 
 If you run `benchmark-steps.mjs` without `--e2e`, give `--dir` a copy of `examples/`, for example `/tmp/examples`.
-In `judge` and `auto-healing` mode, the script writes lock files next to the specs that pass.
+In `judge` and `auto-healing` mode, the script writes lock files next to the specs that pass. Without
+`DEMO_PASSWORD` and `DEMO_BASIC_PASS`, `login.yaml` and `components-auth.yaml` end with `error`.
 
 Each area of the product has its own benchmark or eval:
 
@@ -436,6 +440,9 @@ node scripts/benchmark-claims.mjs --runs 3           # expect judging on saved p
 node scripts/benchmark-locators.mjs [--url https://…]   # recorded locators: coverage, and changed pages (wrong hits must stay 0); no key
 node scripts/benchmark-steps.mjs --e2e --mode no-judge --runs 3   # step overhead with no Jev call: replays the lock files of a judge run
 ```
+
+`eval-browser-steps.mjs` runs the examples too, so it also needs `DEMO_PASSWORD` and `DEMO_BASIC_PASS` from
+`.env.example`.
 
 Change the desktop planner only when `benchmark-planner.mjs` shows an improvement. [Performance](performance.mdx)
 summarizes the results.

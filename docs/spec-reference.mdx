@@ -78,6 +78,8 @@ env:
 - plain replaces each string that starts with `$`, at any depth of `auth` and `env`, when the spec loads.
 - The full string is the name. `$HOME/x` looks for a variable with the name `HOME/x`.
 - An unset or empty variable is an error. `validate` shows it as a warning.
+- `validate` also warns about a password or a token that the spec holds as literal text. See
+  [check specs without a run](running.mdx#check-specs-without-a-run).
 - A `$NAME` inside a list stays as text.
 
 plain also reads [`.env` files](getting-started.mdx).

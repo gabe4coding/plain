@@ -386,3 +386,11 @@ test('a strict spec still loads with every top-level key, an include and the loa
   assert.deepEqual(spec.steps.map((step) => [step.kind, step.origin, step.at?.index]), [['expect', 'flow.yaml', 0], ['click', undefined, 1]]);
   assert.equal(spec.steps[1].optional, true);
 });
+
+test('a cyclic env list loads for a run, and the literal secret check visits each item once', () => {
+  const path = specFile('name: cycle\nurl: https://example.com\nenv:\n  loop: &a [1, *a]\n  tokens: &t [abc, *t]\nsteps:\n  - goto: /\n');
+  assert.equal(loadSpec(path).name, 'cycle');
+  const warnings: string[] = [];
+  loadSpec(path, { onLiteralSecret: (message) => warnings.push(message) });
+  assert.deepEqual(warnings.map((message) => /"([^"]+)" holds/.exec(message)?.[1]), ['env.tokens.0']);
+});
