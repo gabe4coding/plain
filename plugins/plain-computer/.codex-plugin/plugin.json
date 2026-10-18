@@ -1,6 +1,6 @@
 {
   "name": "plain-computer",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Native desktop automation with xa11y actions and Jev decisions; record and replay natural-language YAML tests",
   "author": {
     "name": "Gabriele Pavanello"

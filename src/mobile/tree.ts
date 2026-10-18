@@ -129,7 +129,7 @@ export function parseMobileTree(xml: string, { boundsVisibility = false } = {}):
       };
       const childChain = depth === 0 && role === `${IOS_TYPE}Application` ? '' : nodeChain || undefined;
       node.children = walk(item[tag] as XmlItem[], node.path, depth + 1, node.visible, node.enabled, childClip, childChain);
-      // React Native often puts the text inside an otherwise unnamed pressable container.
+      // A tappable parent with no name of its own gets the text of its children.
       if (!node.name) {
         node.name = node.children.filter((child) => child.visible).map((child) => child.name).filter(Boolean).join(' ').slice(0, MAX_INNER_NAME);
       }

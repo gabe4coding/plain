@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chromium, type Browser, type Page } from 'playwright';
 import { intelligence } from '../core/automation.js';
 import { candidates, elementById } from './candidates.js';
-import { installSettleObserver, mark, markFields, markUnchecked, maskPasswords, settle, shortenUrls, snapshot, snapshotRegion, unchangedSince, waitForMutation } from './page.js';
+import { capturePage, installSettleObserver, mark, markFields, markUnchecked, maskPasswords, settle, shortenUrls, snapshot, snapshotRegion, unchangedSince, waitForMutation } from './page.js';
 import { holdActivity, mayNavigate, settlePage, waitHold } from './activity.js';
 import { resolveLocators } from './locate.js';
 import { settledAsk } from './settled-ask.js';
@@ -543,6 +543,24 @@ test('snapshot: room made for a cut dialog never drops another dialog that fit i
   assert.ok(snap.aria.includes('button "Option 59 of the offer list"'));
 });
 
+test('capturePage keeps the uncut tree off the public snapshot, including a dialog the cap would drop', async () => {
+  const long = Array.from({ length: 2500 }, (_, i) => `<p>Paragraph number ${i} of a long article body</p>`).join('');
+  await page.goto(html(`<main>${long}<p>Late unique paragraph marker</p></main>` +
+    '<div role="dialog" aria-label="Sign in"><button>Stay</button></div>'));
+  const captured = await capturePage(page);
+  assert.equal(captured.snap.truncated, true);
+  assert.ok(!captured.snap.aria.includes('Late unique paragraph marker'), captured.snap.aria.slice(-180));
+  const full = captured.fullAria ?? '';
+  assert.ok(full.includes('Late unique paragraph marker'));
+  assert.ok(full.includes('button "Stay"') || full.includes('--- open dialog ---'));
+  assert.ok(full.length > captured.snap.aria.length);
+  const pub = await snapshot(page);
+  assert.equal(Object.hasOwn(pub, 'fullAria'), false);
+  assert.equal(pub.aria, captured.snap.aria);
+  await page.goto(html('<p>Short</p>'));
+  assert.equal((await capturePage(page)).fullAria, undefined);
+});
+
 test('snapshot: a filled password field shows a mask in every tree, never its value; an empty one shows [empty]', async () => {
   const secret = 'hunter2: Pw#1';
   await page.goto(html(`<form><label>Password <input type="password" id="main"></label>` +
@@ -576,6 +594,8 @@ test('snapshot: a filled password field shows a mask in every tree, never its va
   assert.ok(!truncated.aria.includes('hunter2'), truncated.aria.slice(-300));
   assert.ok(truncated.aria.endsWith('\n--- open dialog ---\n- dialog "Sign in":\n  - text: Dialog password\n  - textbox "Dialog password": "[filled]"'),
     truncated.aria.slice(-300));
+  const captured = await capturePage(page);
+  assert.ok(captured.fullAria && !captured.fullAria.includes('hunter2'), captured.fullAria?.slice(-300));
 });
 
 test('maskPasswords: replaces a textbox value or its text line that equals a password, in every quoting form', () => {

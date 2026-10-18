@@ -16,7 +16,7 @@ import { DUMP_DIR, errorMessage, type StepResult } from './results.js';
  * The lock holds no secret and no run data: a claim keeps a hash only, and every value a run filled in is written
  * back as its placeholder (src/core/parameters.ts), in keys, locators and the hashed states alike.
  */
-export const LOCK_VERSION = 1;
+export const LOCK_VERSION = 2;
 export const RUN_MODES = ['judge', 'no-judge', 'auto-healing'] as const;
 export type RunMode = typeof RUN_MODES[number];
 

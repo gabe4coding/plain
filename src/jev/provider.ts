@@ -5,9 +5,9 @@ export type Provider = 'typesafe' | 'gateway';
 
 const KEY_BY_PROVIDER: Record<Provider, string> = { typesafe: 'TYPESAFE_API_KEY', gateway: 'AI_GATEWAY_API_KEY' };
 
-/** Pinned, not `jev-latest`: the decision thresholds and the phrasing advice were tuned against these versions. */
+/** Pinned, not `jev-latest`: the decision thresholds and the phrasing advice apply to this version. */
 export const MODEL_BY_PROVIDER: Record<Provider, string> = {
-  typesafe: 'jev-1.13.0',
+  typesafe: 'jev-1.14.0',
   gateway: 'typesafe-ai/jev',
 };
 

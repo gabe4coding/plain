@@ -1,0 +1,54 @@
+---
+title: Web pilot runbook
+description: Put about five critical browser specs in CI in a day, run them every night, and read the numbers that matter.
+---
+
+# Web pilot runbook
+
+Use the browser engine for a pilot.
+The desktop and mobile engines are beta.
+Read [Desktop apps](computer-use.mdx) and [Mobile use](mobile-use.mdx) only when you leave the pilot.
+
+## The first day
+
+1. Install Node 22 or newer and set the TypeSafe key.
+   Read [Getting started](getting-started.mdx).
+2. Write about five specs for the critical paths of a test environment.
+   Start each spec with `goto`.
+   Read the [spec reference](spec-reference.mdx).
+3. Phrase each claim so the accessibility tree can show it.
+   Read [Phrasing](phrasing.mdx).
+4. Run `plain validate` on the folder, then run the specs two times.
+   Read [check specs without a run](running.mdx#check-specs-without-a-run).
+5. Add the GitHub Action and pin it to `@v3.1.0`.
+   Put `TYPESAFE_API_KEY` in the repository secrets.
+   Read [CI and containers](ci.mdx).
+
+Stop before the last irreversible step: payment, booking or sending.
+Do not bypass bot protection.
+
+## Nightly runs
+
+Add a schedule to the workflow that calls the action:
+
+```yaml
+on:
+  schedule:
+    - cron: '0 6 * * *'
+```
+
+GitHub runs a schedule on the default branch only.
+Keep `TYPESAFE_API_KEY` in the repository secrets.
+A failed browser check sends one viewport screenshot to TypeSafe.
+On a 1280 by 720 shot, that call was about 2400 tokens.
+
+## What to measure
+
+- False passes. A check that passes on a wrong page must stay at zero.
+  Read the step detail and the state file before you trust a pass.
+- Inconclusive checks. An inconclusive check is not a pass.
+  Read [fix an inconclusive step](phrasing.mdx#fix-an-inconclusive-step).
+- Flaky specs. A pass that needs a retry is a finding.
+  Read [retries and stop limits](running.mdx#retries-and-stop-limits).
+- Tokens per spec. Count them from the report.
+  A failed browser check adds one image call.

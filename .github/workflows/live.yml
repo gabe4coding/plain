@@ -3,9 +3,12 @@ name: Live
 # Real Jev picks and judgments, against the local site in e2e/ and saved pages: no remote site in the loop.
 # The ruleset on main requires the `live` check, so the workflow runs on every pull request and always reports;
 # the "Check what changed" step skips the slow checks when no file matched by RUNTIME changed.
+# schedule runs on the default branch only. Any event that is not a pull request always runs the checks.
 on:  # yamllint disable-line rule:truthy
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
 
 permissions:
   contents: read

@@ -5,7 +5,7 @@ description: Drive installed iOS and Android apps through Appium, write mobile s
 
 # Mobile use
 
-`plain-mobile` drives installed native iOS and Android apps, React Native apps included, through Appium.
+`plain-mobile` drives installed native iOS and Android apps through Appium. The mobile engine is beta.
 Jev picks the controls and judges the claims from the native UI tree.
 The MCP tools and the YAML spec runner use the same session, so a recorded session replays as a spec.
 
@@ -16,7 +16,7 @@ For specs that you can run now, read the [runnable mobile examples](../examples/
 
 You need:
 
-- Node 22 or later and npm.
+- Node 22.19 or newer, and npm. The mobile CLI stops on an older Node.
 - A running Appium server with the driver for your platform.
 - A booted simulator or emulator, or a connected test device, with the app under test installed.
 
@@ -293,7 +293,7 @@ Jev reads the native UI tree as text: the names, types, values and states of the
 - A capture holds up to 5,000 nodes, 32 levels, 1,016 candidates and 60,000 characters. A cut tree is reported.
   plain rejects a page source larger than 5 MB.
 - A password field shows no value. Its name is its label, or "password".
-- A React Native parent that you can tap gets the label of its children.
+- A tappable parent with no name of its own gets the text of its children.
 - Hidden and disabled controls are not candidates for an action.
 - Jev does not see React internals, selectors or pixels. A custom canvas control needs accessibility support in the app.
 - A target or a claim about a physical position, such as `the left button`, also gets the bounds of the elements.

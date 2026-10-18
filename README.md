@@ -12,7 +12,8 @@ Write browser, desktop and mobile tests in plain English. Run the YAML specs fro
 coding agent explore a flow through MCP and save it as a spec.
 
 [Jev](https://typesafe.ai), a small decision model, selects the element that a target describes and judges each
-claim. Jev reads the accessibility tree, not screenshots. Playwright, xa11y or Appium do the actions.
+claim. Jev reads the accessibility tree. Playwright, xa11y or Appium do the actions. When a browser check fails,
+plain sends the viewport screenshot to Jev and prints what it shows. That report does not change the result.
 
 https://github.com/user-attachments/assets/e5665a10-3690-403a-ab8c-6bb04e9f6d89
 
@@ -24,7 +25,9 @@ agent mode, run modes and lock files, what Jev costs, and how it compares with a
 | Plugin and CLI | `plain` | `plain-computer` | `plain-mobile` |
 | Actions by | [Playwright](https://playwright.dev) | [xa11y](https://xa11y.dev) | [Appium](https://appium.io) |
 | Spec target | `url`: a website | `app`: a running application | `platform`, `device`, `app`: an installed app |
-| Platforms | Chromium or Chrome | macOS (tested), Windows, Linux | iOS, Android, React Native |
+| Platforms | Chromium or Chrome | macOS (tested), Windows, Linux | iOS, Android |
+
+The desktop and mobile engines are beta. Use the browser engine for a paid pilot.
 
 ## Quick start
 
@@ -103,6 +106,8 @@ time than with Playwright MCP. The API cost changed from 24% lower to 7% higher,
 | [Running suites](docs/running.mdx) | CLI flags, config file, selection, retries, run modes, exit codes. |
 | [Reporting](docs/reporting.mdx) | Text, JSONL, JUnit and JSON output. |
 | [Artifacts](docs/artifacts.mdx) | Screenshots, traces, debug dumps. |
+| [Security and data](docs/security.mdx) | What a run sends, temp files, secrets. |
+| [Web pilot runbook](docs/pilot.mdx) | First specs in CI, nightly runs, what to measure. |
 | [CI and containers](docs/ci.mdx) | GitHub Action, GitLab, Docker. |
 | [Agent mode](docs/agent-mode.mdx) | Browser MCP tools, `save`, your real browser. |
 | [Snapshots](docs/snapshots.mdx) | Raw, compact and smart snapshot modes. |

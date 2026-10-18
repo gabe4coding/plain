@@ -19,9 +19,9 @@
    (an API key in a text field) become `$VAR` references in the `env` block by hand, used as `${env.*}` in steps.
 5. Add `tags: [smoke]` for selection. Move shared steps into a YAML file containing only `steps:`
    and use `include: ./flows/login.yaml`; placeholders use the root spec’s env/hooks. Keep flow files
-   outside spec input globs. Run `npx -y -p @gabe4coding/plain@3.0.0 plain validate spec.yaml` before replay;
+   outside spec input globs. Run `npx -y -p @gabe4coding/plain@3.1.0 plain validate spec.yaml` before replay;
    it expands includes and warns about absent secrets without hooks, a browser or a model key.
-6. Replay headless: `npx -y -p @gabe4coding/plain@3.0.0 plain --headless spec.yaml` (the same package version as the
+6. Replay headless: `npx -y -p @gabe4coding/plain@3.1.0 plain --headless spec.yaml` (the same package version as the
    MCP server). Run it twice. Green twice is done. Anything else goes back to step 2 with the dump
    file named in `detail`.
 

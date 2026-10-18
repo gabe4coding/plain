@@ -112,6 +112,10 @@ A claim is one fact about something that is visible when the condition holds. `e
 - Name things as the tree does: `a heading with the text "Secure Area"`, not `a title`.
 - Quote the exact visible text rather than a page area the tree does not label: `the text "2 items left!"
   is shown` (0.98), where `the footer says 2 items left` stayed at 0.47 (TodoMVC's footer is plain text).
+  Name the element that shows the text (`the counter shows 2 items left`) when the tree splits it across lines.
+- A failed browser check can add `screenshot:` (what the viewport shows) and `hint:` (the tree split the phrase).
+  Neither line changes pass or fail. A page cut at 60k characters is judged again with long context, and that
+  answer is the verdict. If the image call or the retry fails, the first result stays.
 - Nondeterministic pages: claim what is stable (`a notification bar is shown at the top`), not the random text.
 - `wait` when the thing appears after a delay or animation; `expect` for a settled page.
 - On a large page, scope a wait to where the thing will appear: `step {wait: {that: "a price is shown", within:
@@ -174,7 +178,7 @@ A third rephrasing of the same fact is never the next move.
 
 For saved tests, add `tags` and use `include: ./flows/login.yaml` for shared
 steps-only flows; included steps use the root spec’s env/hooks. Run
-`npx -y -p @gabe4coding/plain@3.0.0 plain validate spec.yaml` before replay. For CI, add
+`npx -y -p @gabe4coding/plain@3.1.0 plain validate spec.yaml` before replay. For CI, add
 `--reporter junit:out/junit.xml --artifacts plain-results` (and
 `--reporter text` to keep console results). These are YAML/CLI features; MCP
 `step`/`batch` cannot execute an `include`. Passing spec runs and `save` write a

@@ -32,11 +32,35 @@ export function choiceChunks<T>(items: T[]): T[][] {
   return Array.from({ length: chunkCount }, (_, i) => items.slice(i * size, (i + 1) * size));
 }
 
+/** Per-call flags. `images` and `longContext` are TypeSafe experimental headers. The gateway path rejects both. */
+export interface AskOptions extends NonNullable<Parameters<TypeSafeClient['systemOne']>[1]> {
+  images?: boolean;
+  longContext?: boolean;
+}
+
+/** Headers for the experimental TypeSafe paths. Absent unless the call opted in. */
+export function dangerHeaders(options?: { images?: boolean; longContext?: boolean }): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (options?.images) headers['TypeSafe-Danger-Zone-Images'] = 'true';
+  if (options?.longContext) headers['TypeSafe-Danger-Zone-Long-Context'] = 'true';
+  return headers;
+}
+
+/** Input plus output tokens. The 0.7 SDK types both fields as `number | null`. */
+export function tokenCount(usage: { input_tokens: number | null; output_tokens: number | null }): number {
+  return (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+}
+
 /** One Jev request. The answers come back in question order and in the same shape for both providers. */
-export async function ask(state: unknown, questions: Question[]): Promise<Answers> {
+export async function ask(state: unknown, questions: Question[], options?: AskOptions): Promise<Answers> {
+  if ((options?.images || options?.longContext) && provider() === 'gateway') {
+    throw new Error(options.images
+      ? 'The Vercel AI Gateway path does not support images.'
+      : 'The Vercel AI Gateway path does not support long context.');
+  }
   const { answers, tokens } = provider() === 'gateway'
     ? await withGatewayRetry(() => callGateway(state, questions))
-    : await callTypesafe(state, questions);
+    : await callTypesafe(state, questions, options);
   return {
     tokens,
     answers: answers.map((answer, i) =>
@@ -101,9 +125,10 @@ function typesafe(): TypeSafeClient {
   }));
 }
 
-async function callTypesafe(state: unknown, questions: Question[],
-  options?: Parameters<TypeSafeClient['systemOne']>[1]): Promise<RawAnswers> {
+async function callTypesafe(state: unknown, questions: Question[], options?: AskOptions): Promise<RawAnswers> {
   const keys = questionKeys(questions);
+  const { images, longContext, headers, ...rest } = options ?? {};
+  const extra = { ...headers, ...dangerHeaders({ images, longContext }) };
   const { answers, usage } = await typesafe().systemOne({
     model: MODEL_BY_PROVIDER.typesafe,
     state: state as any,
@@ -111,8 +136,8 @@ async function callTypesafe(state: unknown, questions: Question[],
       keys[i],
       question.kind === 'choice' ? choice(question.instructions, question.criteria) : noul(question.instructions),
     ])),
-  }, options);
-  return { answers: inKeyOrder(keys, answers), tokens: usage.input_tokens + usage.output_tokens };
+  }, { ...rest, ...(Object.keys(extra).length ? { headers: extra } : {}) });
+  return { answers: inKeyOrder(keys, answers), tokens: tokenCount(usage) };
 }
 
 async function callGateway(state: unknown, questions: Question[]): Promise<RawAnswers> {

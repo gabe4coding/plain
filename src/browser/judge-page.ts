@@ -1,6 +1,6 @@
 import type { Locator } from 'playwright';
-import { judgeState, type Snapshot } from '../core/automation.js';
-import { snapshot, snapshotRegion } from './page.js';
+import { intelligence, judgeState, type Snapshot } from '../core/automation.js';
+import { capturePage, captureRegion } from './page.js';
 import { settledAsk } from './settled-ask.js';
 import { resolveOne } from './locate.js';
 import { timed, type StepContext } from './context.js';
@@ -15,22 +15,23 @@ import { layoutRelations } from '../core/layout.js';
  * What a judgment is about: the snapshot plus the events (downloads, console errors, dialogs) as they were when
  * it was taken. An event that lands while the page settles makes it a different state.
  */
-export interface Observed { snap: Snapshot; events: string[] }
+export interface Observed { snap: Snapshot; events: string[]; /** Uncut tree when the capture kept one. Absent from `snap`. */ fullAria?: string }
 
 /** `spatial`: the observation carried rendered geometry, as the lock must record. */
-interface Judged { state: Observed; probabilities: number[] | null; spatial: boolean }
+interface Judged { state: Observed; probabilities: number[] | null; spatial: boolean; longContext?: boolean }
 
 /**
  * Answers an earlier expect's request gave for the claims of the expects right after it (lookahead), with the exact
  * observation they are about. A later expect uses them only when its own settled observation is the same: then Jev
  * would get the same input, so the request is skipped. Otherwise it asks as usual.
  */
-interface Prefetched { observed: Observed; spatial: boolean; probabilities: Map<string, number> }
+interface Prefetched { observed: Observed; spatial: boolean; probabilities: Map<string, number>; longContext?: boolean }
 const prefetched = new WeakMap<StepContext, Prefetched>();
-type Judgment = { probabilities: number[]; tokens: number; reused?: boolean };
+type Judgment = { probabilities: number[]; tokens: number; requests?: number; longContext?: boolean; reused?: boolean };
 
 const sameObserved = (a: Observed, b: Observed): boolean =>
   a.snap.url === b.snap.url && a.snap.title === b.snap.title && a.snap.aria === b.snap.aria && a.snap.layout === b.snap.layout &&
+  a.fullAria === b.fullAria &&
   a.events.length === b.events.length && a.events.every((event, i) => event === b.events[i]);
 
 /**
@@ -59,16 +60,18 @@ function reuse(ctx: StepContext, observed: Observed, claims: string[], spatial: 
   const known = prefetched.get(ctx);
   if (!known || known.spatial !== spatial || !sameObserved(known.observed, observed)) return null;
   if (!claims.every((claim) => known.probabilities.has(claim))) return null;
-  return { probabilities: claims.map((claim) => known.probabilities.get(claim)!), tokens: 0, reused: true };
+  return { probabilities: claims.map((claim) => known.probabilities.get(claim)!), tokens: 0, longContext: known.longContext, reused: true };
 }
 
 /** What a judgment sees: the page or the region, its compact geometry when spatial, and the events so far. */
 export async function observe(ctx: StepContext, spatial: boolean, within?: Locator): Promise<Observed> {
-  return { snap: await timed(ctx, 'snapshot', async () => {
+  const captured = await timed(ctx, 'snapshot', async () => {
     const page = ctx.page;
-    const snap = await (within ? snapshotRegion(page, within) : snapshot(page));
-    return spatial ? { ...snap, layout: await layoutSnapshot(page, within, { compact: true }) } : snap;
-  }), events: [...ctx.events] };
+    const shot = await (within ? captureRegion(page, within) : capturePage(page));
+    const snap = spatial ? { ...shot.snap, layout: await layoutSnapshot(page, within, { compact: true }) } : shot.snap;
+    return { snap, fullAria: shot.fullAria };
+  });
+  return { ...captured, events: [...ctx.events] };
 }
 
 /**
@@ -78,9 +81,11 @@ export async function observe(ctx: StepContext, spatial: boolean, within?: Locat
  * by a point between two renders of the same screen. The run's values are placeholders in it: a page that shows this
  * run's title where the recorded run showed its own is the same state.
  */
-export function stateHash({ snap, events }: Observed, parameters: RunValues = []): string {
+export function stateHash({ snap, events, fullAria }: Observed, parameters: RunValues = []): string {
   const generic = (text: string) => parameterize(text, parameters);
-  return sha256(JSON.stringify([generic(pathOf(snap.url)), generic(snap.title), generic(snap.aria),
+  // The uncut tree, so a record and a no-judge replay hash the same text. Replay cannot tell which one was stored.
+  const aria = fullAria ?? snap.aria;
+  return sha256(JSON.stringify([generic(pathOf(snap.url)), generic(snap.title), generic(aria),
     snap.layout === undefined ? null : generic(layoutRelations(snap.layout)), events.map((event) => generic(event.replace(SAVED_TO, '$1')))]));
 }
 
@@ -106,15 +111,28 @@ async function judgeObservation(ctx: StepContext, claims: string[], spatial: boo
       const known = within ? null : reuse(ctx, observed, claims, spatial);
       if (known) return known;
       const asked = [...claims, ...ahead];
-      const result = await judgeState(observed.snap, asked, observed.events);
-      if (ahead.length) prefetched.set(ctx, { observed, spatial, probabilities: new Map(asked.map((claim, i) => [claim, result.probabilities[i]])) });
-      return { probabilities: result.probabilities.slice(0, claims.length), tokens: result.tokens };
+      const result = await judgeState(observed.snap, asked, observed.events, intelligence, { fullAria: observed.fullAria });
+      if (ahead.length) prefetched.set(ctx, {
+        observed, spatial, longContext: result.longContext,
+        probabilities: new Map(asked.map((claim, i) => [claim, result.probabilities[i]])),
+      });
+      return {
+        probabilities: result.probabilities.slice(0, claims.length), tokens: result.tokens,
+        requests: result.requests, longContext: result.longContext,
+      };
     },
-    discard: (unused) => { if (!unused.reused) ctx.track(unused.tokens); },
+    discard: (unused) => account(ctx, unused),
     skip,
   });
-  if (result && !result.reused) ctx.track(result.tokens);
-  return { state, probabilities: result?.probabilities ?? null, spatial };
+  if (result) account(ctx, result);
+  return { state, probabilities: result?.probabilities ?? null, spatial, longContext: result?.longContext };
+}
+
+/** One `track` per model request. A long-context retry is a second request with no extra tokens of its own. */
+function account(ctx: StepContext, judgment: Judgment): void {
+  if (judgment.reused) return;
+  ctx.track(judgment.tokens);
+  for (let extra = 1; extra < (judgment.requests ?? 1); extra++) ctx.track(0);
 }
 
 /** Judges one claim against a region only; null probabilities when `skip` says so. */
@@ -123,7 +141,7 @@ export async function judgeRegion(ctx: StepContext, region: Locator, claim: stri
   return judgeObservation(ctx, [claim], spatial, region, skip);
 }
 
-type ClaimsJudgment = { snap: Snapshot; probabilities: number[]; state: Observed; spatial: boolean } | { detail: string };
+type ClaimsJudgment = { snap: Snapshot; probabilities: number[]; state: Observed; spatial: boolean; longContext?: boolean } | { detail: string };
 
 /** One judgment of the claims, against the page or the region `within` names (`detail` when Jev finds no region). */
 export async function judgeClaims(ctx: StepContext, claims: string[], within?: string): Promise<ClaimsJudgment> {
@@ -133,12 +151,12 @@ export async function judgeClaims(ctx: StepContext, claims: string[], within?: s
     const region = await resolveOne(ctx, 'region', within);
     if (!region.element) return { detail: region.detail };
     const spatial = await needsLayout(ctx, claims);
-    const { state, probabilities } = await judgeObservation(ctx, claims, spatial, region.element!);
-    return { snap: state.snap, probabilities: probabilities!, state, spatial };
+    const { state, probabilities, longContext } = await judgeObservation(ctx, claims, spatial, region.element!);
+    return { snap: state.snap, probabilities: probabilities!, state, spatial, longContext };
   }
   // Settled, because a client-side route change reaches `load` at once and the claim is about the content.
-  const { state, probabilities, spatial } = await judgeSettled(ctx, claims, undefined, await claimsAhead(ctx, claims));
-  return { snap: state.snap, probabilities: probabilities!, state, spatial };
+  const judged = await judgeSettled(ctx, claims, undefined, await claimsAhead(ctx, claims));
+  return { snap: judged.state.snap, probabilities: judged.probabilities!, state: judged.state, spatial: judged.spatial, longContext: judged.longContext };
 }
 
 /** The MCP `ask` tool: one judgment, like expect, but not a step: no status, not recorded. */

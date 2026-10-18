@@ -5,7 +5,7 @@ import { describeSnapshot } from '../jev/describe.js';
 import { judge } from '../jev/judge.js';
 import { pickElements } from '../jev/pick.js';
 import type { Candidate } from './candidate.js';
-import { dumpDebug, topGuesses } from './results.js';
+import { dumpDebug, errorMessage, topGuesses } from './results.js';
 
 // What every engine (browser, desktop, mobile) shows Jev. Element handles stay inside the adapters.
 
@@ -63,7 +63,14 @@ export interface ResolvedTarget<T> {
 }
 
 /** The model calls, injectable so tests run without a key. */
-export type Intelligence = { pick: typeof pickElements; judge: typeof judge; describe?: typeof describeSnapshot; ask?: typeof ask };
+export type Intelligence = {
+  pick: typeof pickElements;
+  judge: typeof judge;
+  describe?: typeof describeSnapshot;
+  ask?: typeof ask;
+  /** Advisory read of a failure screenshot. A throw or null leaves the verdict as it is. */
+  explain?: (claims: string[], png: Uint8Array) => Promise<{ line: string; tokens: number } | null>;
+};
 export const intelligence: Intelligence = { pick: pickElements, judge, describe: describeSnapshot, ask };
 
 /** Resolves each target to an element, all in one Jev request. */
@@ -128,24 +135,44 @@ const MIN_ARIA_TO_HALVE = 4000;
 /** Sent with every layout: names, values, visibility and relations must all hold for the same elements. */
 const SPATIAL_CLAIM_RULES = 'A spatial claim requires all its named text, current values, displayed selections, visibility and spatial relations to hold for the same elements. If any named text, value or selection differs, or required visible text belongs to an invisible element, the entire claim is false. A correct spatial relation alone does not make a claim with a mismatched name or value true. An available unselected option in the accessibility tree is not displayed by a collapsed select. Read the rendered evidence for physical position and visibility.';
 
-/**
- * Judges claims against a snapshot. A state over the token limit is cut in half until it fits. A region goes
- * without the page URL: with it, Jev doubts a claim that a short region tree plainly shows. Without the title
- * too, it doubts claims phrased in the page's terms (docs/benchmarks/claims.md).
- */
-export async function judgeState(snap: Snapshot, claims: string[], events: string[] = [], ai = intelligence) {
-  let aria = snap.aria;
+function judgmentBody(snap: Snapshot, aria: string, events: string[]) {
   const page = snap.region ? { title: snap.title } : { url: snap.url, title: snap.title };
+  return { ...page, aria, events, ...(snap.layout ? { layout: snap.layout, layoutRules: SPATIAL_CLAIM_RULES } : {}) };
+}
+
+/**
+ * Judges claims against a snapshot. A state over the token limit is cut in half until it fits. When the tree was
+ * cut at the capture cap and `fullAria` still holds the rest, the verdict is the long-context retry of that full
+ * tree. A failed retry keeps the first verdict. A region goes without the page URL: with it, Jev doubts a claim
+ * that a short region tree plainly shows. Without the title too, it doubts claims phrased in the page's terms
+ * (docs/benchmarks/claims.md).
+ */
+export async function judgeState(snap: Snapshot, claims: string[], events: string[] = [], ai = intelligence,
+  options?: { fullAria?: string }): Promise<{ probabilities: number[]; tokens: number; requests: number; longContext?: boolean }> {
+  let aria = snap.aria;
   for (;;) {
     try {
-      const result = await ai.judge({ ...page, aria, events,
-        ...(snap.layout ? { layout: snap.layout, layoutRules: SPATIAL_CLAIM_RULES } : {}) }, claims);
+      const result = await ai.judge(judgmentBody(snap, aria, events), claims);
       if (result.probabilities.length !== claims.length) throw new Error('Jev returned fewer judgments than claims');
-      return result;
+      return withLongContext(snap, aria, events, claims, result, options?.fullAria, ai);
     } catch (error) {
       if (!isTooLong(error) || aria.length < MIN_ARIA_TO_HALVE) throw error;
       aria = aria.slice(0, Math.floor(aria.length / 2));
       console.error(`plain: state too long for the model, aria cut to ${aria.length} chars — scope the expect with \`within\` for precision`);
     }
+  }
+}
+
+/** The full tree, once, and only when the capture cut it. A failure keeps `first`. */
+async function withLongContext(snap: Snapshot, aria: string, events: string[], claims: string[],
+  first: { probabilities: number[]; tokens: number }, fullAria: string | undefined, ai: Intelligence) {
+  if (!snap.truncated || !fullAria || fullAria.length <= aria.length) return { ...first, requests: 1 };
+  try {
+    const retried = await ai.judge(judgmentBody(snap, fullAria, events), claims, { longContext: true });
+    if (retried.probabilities.length !== claims.length) throw new Error('Jev returned fewer judgments than claims');
+    return { probabilities: retried.probabilities, tokens: first.tokens + retried.tokens, requests: 2, longContext: true as const };
+  } catch (error) {
+    console.error(`plain: long-context retry failed (${errorMessage(error)}); keeping the truncated judgment`);
+    return { ...first, requests: 1 };
   }
 }

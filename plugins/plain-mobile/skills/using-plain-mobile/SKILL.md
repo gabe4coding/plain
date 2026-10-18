@@ -1,6 +1,6 @@
 ---
 name: using-plain-mobile
-description: Drive and inspect native iOS and Android apps, including React Native, through the plain-mobile MCP tools, or record and replay mobile YAML tests. Requires Appium and a connected device, simulator or emulator.
+description: Drive and inspect native iOS and Android apps through the plain-mobile MCP tools, or record and replay mobile YAML tests. The mobile engine is beta. Requires Appium and a connected device, simulator or emulator.
 ---
 
 # Plain Mobile
@@ -64,9 +64,9 @@ classification returns compact evidence with unavailable inference. Omitted cont
 absent; expand with `within` or raw mode. To read a value, use `read`, not a snapshot. Known
 actions need no snapshot first.
 `screenshot` returns the device PNG for inspection. Neither
-reading is recorded. Jev uses text, not screenshots; inaccessible canvas controls require app
-accessibility support. React Native controls work through their native accessibility labels,
-roles and states; the plugin does not inspect React internals or switch to webview contexts.
+reading is recorded. Jev uses text, not screenshots. A tappable parent with no name of its own
+gets the text of its children. The plugin does not inspect framework internals or switch to
+webview contexts. Inaccessible canvas controls require app accessibility support.
 On iOS, snapshots retain explicitly visible descendants of invisible layout containers. If a
 visible form is missing from the snapshot, report a possible adapter/accessibility mismatch;
 do not assume the app exposes no controls or repeatedly tap unrelated navigation controls.
@@ -180,7 +180,7 @@ steps:
   - expect: "The preview contains the test message"
 ```
 
-Run `npx -y -p @gabe4coding/plain@3.0.0 plain-mobile <spec.yaml>` (the MCP server's package version).
+Run `npx -y -p @gabe4coding/plain@3.1.0 plain-mobile <spec.yaml>` (the MCP server's package version).
 Files run sequentially. On iOS use `platform: ios` and its UDID/bundle ID. Equivalent flows can
 share steps, but verify accessibility and navigation on each platform. Optional hooks use the
 shared isolated setup/teardown contract, with setup before opening and cleanup on failure.
@@ -189,7 +189,7 @@ runs; prepare starting state in explicit steps or hooks.
 
 For YAML suites, add `tags: [smoke]` and share steps with
 `include: ./flows/login.yaml` (a steps-only file; placeholders use root env/hooks).
-Keep flows outside spec input globs. Run `npx -y -p @gabe4coding/plain@3.0.0 plain-mobile validate spec.yaml`
+Keep flows outside spec input globs. Run `npx -y -p @gabe4coding/plain@3.1.0 plain-mobile validate spec.yaml`
 before replay; missing secrets are warnings and no session/model key is needed.
 For CI, use `--reporter jsonl --reporter junit:out/junit.xml --artifacts plain-results`.
 Passing spec runs and `save` write a lock file (`*.lock.json` next to each spec and flow): commit it.

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { entryKey, formatLock, LockStore, parseLock, type LockIO, type LockRef } from './lock.js';
+import { entryKey, formatLock, LOCK_VERSION, LockStore, parseLock, type LockIO, type LockRef } from './lock.js';
 
 const memory = (): LockIO & { files: Map<string, string> } => {
   const files = new Map<string, string>();
@@ -56,5 +56,5 @@ test('the file is deterministic, in step order, and a file of another version is
   const text = formatLock(entries);
   assert.ok(text.indexOf('[1,') < text.indexOf('[3,'), 'entries in step order');
   assert.equal(formatLock(parseLock(text)!), text);
-  assert.equal(parseLock(text.replace('"version": 1', '"version": 0')), null);
+  assert.equal(parseLock(text.replace(`"version": ${LOCK_VERSION}`, '"version": 0')), null);
 });

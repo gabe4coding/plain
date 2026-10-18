@@ -46,7 +46,7 @@ jobs:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
 ```
 
-Pin the action to a release tag, for example `@v3.0.0`, in place of `@main`. Each release gets the tag
+Pin the action to a release tag, for example `@v3.1.0`, in place of `@main`. Each release gets the tag
 `v<version>` after its npm publish. With `@main`, a new release changes your runs without a commit. Also, the
 action fails for some minutes after a new version reaches main, until npm has it.
 

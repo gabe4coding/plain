@@ -42,6 +42,39 @@ test('a region is judged without the page URL; a whole page with it', async () =
   assert.deepEqual(states, [{ title: 'Test', aria: '- text: B', events: ['downloaded'] }, { url: 'desktop://test', title: 'Test', aria: '- text: B', events: [] }]);
 });
 
+test('a cut tree is judged again on the full text; a failed retry keeps the first verdict', async () => {
+  const calls: { aria: string; longContext?: boolean }[] = [];
+  const snap = { ...adapter.state, aria: 'cut', truncated: true };
+  const failing = fakeIntelligence({
+    ...ai, judge: async (state, _claims, options) => {
+      calls.push({ aria: (state as { aria: string }).aria, longContext: options?.longContext });
+      if (options?.longContext) throw new Error('gateway');
+      return { probabilities: [.2, .95], tokens: 5 };
+    },
+  });
+  assert.deepEqual(await judgeState(snap, ['a', 'b'], [], failing, { fullAria: 'cut plus the tail' }),
+    { probabilities: [.2, .95], tokens: 5, requests: 1 });
+  assert.deepEqual(calls, [
+    { aria: 'cut', longContext: undefined },
+    { aria: 'cut plus the tail', longContext: true },
+  ]);
+
+  calls.length = 0;
+  const retrying = fakeIntelligence({
+    ...ai, judge: async (state, _claims, options) => {
+      calls.push({ aria: (state as { aria: string }).aria, longContext: options?.longContext });
+      return { probabilities: options?.longContext ? [.99, .01] : [.2, .95], tokens: options?.longContext ? 8 : 5 };
+    },
+  });
+  assert.deepEqual(await judgeState(snap, ['a', 'b'], [], retrying, { fullAria: 'full' }),
+    { probabilities: [.99, .01], tokens: 13, requests: 2, longContext: true });
+
+  calls.length = 0;
+  await judgeState({ ...snap, truncated: false }, ['a', 'b'], [], retrying, { fullAria: 'full' });
+  await judgeState(snap, ['a', 'b'], [], retrying, { fullAria: 'cut' });
+  assert.deepEqual(calls.map((call) => call.longContext), [undefined, undefined]);
+});
+
 test('askSettled keeps the early answer when the settled look is the same, and asks again when it is not', async () => {
   const run = async (early: string | null, settled: string, skip?: (f: string) => boolean) => {
     const asked: string[] = []; const discarded: string[] = [];

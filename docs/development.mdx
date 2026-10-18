@@ -27,6 +27,8 @@ npm run verify   # the key-free gate: tests, docs, source rules, module boundari
 
 `npm run verify` runs `npm test`, `npm run check:docs`, `npm run check:agent-notes`, `npm run check:source`,
 `npm run check:deps`, `npm run check:examples` and `npm run test:plugins`. The CI workflow runs the same command.
+The mobile tests load webdriverio, which needs Node 22.19 or newer.
+On an older Node 22, those tests fail when the module loads.
 
 `npm run check:examples` validates the specs in `examples/`, `examples/mobile/` and `e2e/`. It also validates
 each full spec and config example in the user docs, with the CLI of its engine. A literal credential that
@@ -169,7 +171,8 @@ case.
 - The `Test` workflow runs `npm run verify` on each pull request and on main. It then checks that the generated
   plugin files match the build.
 - The `Live` workflow runs the e2e suite and the claims gate. It starts on each pull request, because main
-  requires its `live` check. If the pull request does not change the runtime, the e2e suite or the eval data, the
+  requires its `live` check. A schedule also starts it every day at 06:00 UTC. GitHub runs that schedule on the
+  default branch only. If the pull request does not change the runtime, the e2e suite or the eval data, the
   check passes and the workflow runs nothing more. The `RUNTIME` pattern in `.github/workflows/live.yml` lists
   these files. The workflow needs the `TYPESAFE_API_KEY` repository secret. Without it, the workflow fails, but on
   a pull request from a fork it is skipped.

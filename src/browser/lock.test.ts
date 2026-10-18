@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { intelligence } from '../core/automation.js';
-import type { RunMode } from '../core/lock.js';
+import { LOCK_VERSION, type RunMode } from '../core/lock.js';
 import { loadSpec } from '../core/spec.js';
 import { runSpec } from './runner.js';
 import { closeSharedBrowser } from './session.js';
@@ -76,7 +76,7 @@ test('judge records the lock; no-judge replays it with no Jev call', async (t) =
   assert.equal(judged.report.status, 'pass', JSON.stringify(judged.steps));
   assert.deepEqual(s.calls, { pick: 1, judge: 1 });
   const lock = s.lock();
-  assert.equal(lock.version, 1);
+  assert.equal(lock.version, LOCK_VERSION);
   const [target, claims] = Object.entries(lock.entries);
   assert.deepEqual(JSON.parse(target[0]), [1, 'click', 'target:the first action button']);
   assert.equal(target[1].text, "getByRole('button', { name: 'Go', exact: true })");

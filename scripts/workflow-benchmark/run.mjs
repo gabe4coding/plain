@@ -42,7 +42,7 @@ if (!Number.isInteger(repeats) || repeats < 1 || !Number.isFinite(budget) || bud
 mkdirSync(out, { recursive: true });
 const catalog = await (await fetch('https://ai-gateway.vercel.sh/v1/models')).json();
 const pricing = Object.fromEntries(models.map(id => { const entry = catalog.data.find(m => m.id === id); if (!entry) throw new Error(`Unknown model ${id}`); return [id, entry.pricing]; }));
-writeFileSync(resolve(out, 'pricing.json'), JSON.stringify({ retrievedAt: new Date().toISOString(), source: 'https://ai-gateway.vercel.sh/v1/models', pricing, jev: { model: 'jev-1.13.0', inputPerMillion: 0.042, outputPerMillion: 0, source: 'https://docs.typesafe.ai/models' } }, null, 2));
+writeFileSync(resolve(out, 'pricing.json'), JSON.stringify({ retrievedAt: new Date().toISOString(), source: 'https://ai-gateway.vercel.sh/v1/models', pricing, jev: { model: 'jev-1.14.0', inputPerMillion: 0.042, outputPerMillion: 0, source: 'https://docs.typesafe.ai/models' } }, null, 2));
 
 const common = 'Complete the requested task using the browser tools. Work efficiently and verify the visible result before finishing. You may issue multiple tool calls in a turn; they execute in order. Use only the supplied UI tools: no JavaScript, hidden application state, source inspection, direct HTTP calls, hooks, custom file output, or external sites. read_artifact can read snapshot files linked by browser tools. End with finish, including any requested answer. All pages are disposable test fixtures; saving changes is authorized.';
 const prompts = {

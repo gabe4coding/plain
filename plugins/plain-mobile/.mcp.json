@@ -5,7 +5,7 @@
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/bin/npx.mjs",
         "-y",
-        "--package=@gabe4coding/plain@3.0.0",
+        "--package=@gabe4coding/plain@3.1.0",
         "plain-mobile",
         "mcp"
       ]

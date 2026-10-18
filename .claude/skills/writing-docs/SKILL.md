@@ -27,7 +27,9 @@ doc: `CODING_STANDARDS.md`, "Docs that follow the code".
 | Hooks | `docs/hooks.mdx` |
 | All CLI flags, config file and keys, precedence, selection, retries, bail, budgets, run modes and lock files, `validate`, exit codes | `docs/running.mdx` |
 | Report formats | `docs/reporting.mdx` |
-| Screenshots, traces, debug dumps | `docs/artifacts.mdx` |
+| Screenshots, traces, debug dumps, the failure screenshot line | `docs/artifacts.mdx` |
+| What a run sends, temp files, secrets | `docs/security.mdx` |
+| A web pilot: first specs in CI, nightly runs, what to measure | `docs/pilot.mdx` |
 | GitHub Action (inputs table from `action.yml`), GitLab, Docker | `docs/ci.mdx` |
 | Browser MCP tools, `save`, `changed`, `read`, real browser (profile, channel, CDP) | `docs/agent-mode.mdx` |
 | Snapshot modes | `docs/snapshots.mdx` |

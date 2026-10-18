@@ -9,6 +9,8 @@ description: Configure the Jev API key, install the plugins for Claude Code or C
 
 - Node 22 or newer, and npm. The plugins and the CLIs run the
   [`@gabe4coding/plain` npm package](https://www.npmjs.com/package/@gabe4coding/plain) with `npx`.
+  The browser and desktop CLIs stop when Node is older than 22.
+  The mobile CLI stops when Node is older than 22.19.
 - A [TypeSafe](https://typesafe.ai) API key or a Vercel AI Gateway key. Jev uses this key for each pick and each judgment.
 - For desktop specs: a desktop session and accessibility permission. Refer to [desktop platform setup](computer-use.mdx#platform-setup).
 - For mobile specs: an Appium server, a test device or simulator, and your app installed on it. Refer to [mobile setup](mobile-use.mdx#setup).
@@ -26,14 +28,13 @@ Each key selects a provider:
 
 | Variable | Provider | Jev model |
 |---|---|---|
-| `TYPESAFE_API_KEY` | TypeSafe | `jev-1.13.0` (pinned) |
+| `TYPESAFE_API_KEY` | TypeSafe | `jev-1.14.0` (pinned) |
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway | `typesafe-ai/jev` (no pinned version) |
 
 If both keys are set, plain uses TypeSafe. To force a provider, set `JEV_PROVIDER` to `typesafe` or `gateway`.
 If `JEV_PROVIDER` names a provider without its key, the run stops with an error.
 
-The thresholds and the phrasing advice were tuned against `jev-1.13.0`. Only the TypeSafe provider pins this
-version.
+The thresholds and the phrasing advice apply to `jev-1.14.0`. Only the TypeSafe provider pins this version.
 
 ### Where plain reads the key
 
@@ -59,7 +60,7 @@ Do not commit a `.env` file. It contains your API key. The repository has an [ex
 - An MCP server starts without a key. A tool call that needs Jev then returns the missing-key message to the agent.
 
 The browser CLI and the browser MCP server write the selected provider and model to stderr, for example
-`plain: Jev via typesafe (jev-1.13.0)`.
+`plain: Jev via typesafe (jev-1.14.0)`.
 
 ## Install the plugins
 

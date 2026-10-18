@@ -122,7 +122,7 @@ steps:
   - expect: "The preview contains the test message"
 ```
 
-Run `npx -y -p @gabe4coding/plain@3.0.0 plain-computer <spec.yaml>` (the same package version as
+Run `npx -y -p @gabe4coding/plain@3.1.0 plain-computer <spec.yaml>` (the same package version as
 the MCP server). Desktop specs run sequentially.
 Hooks use the same isolated setup/teardown child contract as plain. Explicit assertion
 failures are never skipped by `optional: true`; only errors/inconclusive results can be skipped.
@@ -135,7 +135,7 @@ results between steps.
 
 For YAML suites, add `tags: [smoke]` and share steps with
 `include: ./flows/login.yaml` (a steps-only file; placeholders use root env/hooks).
-Keep flows outside spec input globs. Run `npx -y -p @gabe4coding/plain@3.0.0 plain-computer validate spec.yaml`
+Keep flows outside spec input globs. Run `npx -y -p @gabe4coding/plain@3.1.0 plain-computer validate spec.yaml`
 before replay; missing secrets are warnings and no session/model key is needed.
 For CI, use `--reporter jsonl --reporter junit:out/junit.xml --artifacts plain-results`.
 Passing spec runs and `save` write a lock file (`*.lock.json` next to each spec and flow): commit it.

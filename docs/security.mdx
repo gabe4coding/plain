@@ -1,0 +1,52 @@
+---
+title: Security and data
+description: See which page data and screenshots a run sends, where temporary files land, and how to keep secrets out of a spec.
+---
+
+# Security and data
+
+plain sends page data to the model provider so Jev can pick and judge.
+A failed browser check also sends its screenshot by default.
+There is no flag to stop that send.
+
+## What a run sends
+
+Each judgment sends the page URL, the title, the accessibility tree and the run events.
+The events are dialogs, downloads and console errors.
+The provider is the one in [Getting started](getting-started.mdx#the-api-key).
+A password field is sent as `[filled]`, never as its value.
+Read [field state](snapshots.mdx#field-state).
+
+A failed browser `expect` sends the viewport PNG to TypeSafe.
+The step detail then has a `screenshot:` line.
+The line does not change `pass` or `fail`.
+If the image call fails, the line is absent and the result stays.
+The Vercel AI Gateway path does not get the image.
+Read [what a failed check sends](artifacts.mdx#what-a-failed-check-sends).
+Desktop and mobile checks do not send a screenshot to Jev.
+
+When a browser page is cut at 60,000 characters, plain sends the full tree once more to TypeSafe.
+That answer is the verdict.
+If the second call fails, plain keeps the first verdict.
+The gateway path keeps the cut verdict.
+
+## Files on the machine
+
+plain writes Jev debug files under `$TMPDIR/plain`.
+When `TMPDIR` is not set, that folder is the system temp directory plus `plain`.
+This happens also when `--artifacts` is off.
+An artifacts folder keeps the screenshots and traces you asked to save.
+Those files stay on the machine that ran the spec.
+Read [failure artifacts](artifacts.mdx).
+
+A lock file stores a hash of the page, not the page text.
+Read [run modes](running.mdx#run-modes).
+
+## Secrets
+
+Put `TYPESAFE_API_KEY` in the env file or in a CI secret.
+Do not commit that file.
+Read [the API key](getting-started.mdx#the-api-key).
+A spec must not hold a literal credential.
+Use `$VAR` in `env` and `${env.*}` in steps.
+Read [check specs without a run](running.mdx#check-specs-without-a-run).

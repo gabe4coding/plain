@@ -5,6 +5,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
+import { refuseOldNode } from './node-check.mjs';
+refuseOldNode();
 const require = createRequire(import.meta.url);
 const { chromium } = await import('playwright');
 if (!existsSync(chromium.executablePath())) {

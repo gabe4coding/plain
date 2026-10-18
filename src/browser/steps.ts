@@ -2,9 +2,12 @@ import path from 'node:path';
 import type { Locator } from 'playwright';
 import { StepKind } from '../core/step-kind.js';
 import type { Step } from '../core/spec.js';
-import type { Snapshot } from '../core/automation.js';
+import { intelligence, type Snapshot } from '../core/automation.js';
 import { label, dumpDebug, noted, type Status, type StepResult } from '../core/results.js';
+import { ask } from '../jev/ask.js';
 import { decide, decideAll } from '../jev/decide.js';
+import { explainFailure, imageBackend } from '../jev/explain.js';
+import { SPLIT_TEXT_HINT, splitTextHint } from './split-text.js';
 import { waitForMutation } from './page.js';
 import { type CandidateKind } from './candidates.js';
 import { mayNavigate, settlePage, waitHold } from './activity.js';
@@ -263,7 +266,7 @@ async function runWait(ctx: StepContext, step: StepOf<'wait'>, stepLabel: string
   let lastProbability = 0;
   let lastSnap: Snapshot | null = null;
   let lastKey: string | null = null;
-  const keyOf = (observed: Observed) => JSON.stringify([observed.snap, observed.events]);
+  const keyOf = (observed: Observed) => JSON.stringify([observed.snap, observed.events, observed.fullAria]);
   const unchangedSinceNo = (observed: Observed) => keyOf(observed) === lastKey && decide(lastProbability, 'expect') === 'fail';
   const detail = () => `p=${lastProbability.toFixed(2)} after ${polls} poll(s)${skipped > 0 ? `, ${skipped} unchanged` : ''}`;
 
@@ -310,13 +313,52 @@ async function runExpect(ctx: StepContext, step: StepOf<'expect'>, stepLabel: st
   const status: Status = decideAll(probabilities);
   if (status === 'pass') recordClaims(ctx, step.expectations, step.within, judged.state, judged.spatial);
   let detail = `p=${probabilities.map((p) => p.toFixed(2)).join(', ')} @ ${ctx.page.url()}`;
-  if (snap.truncated) detail += ' (aria truncated at 60k chars)';
+  if (judged.longContext) detail += ' (long context)';
+  else if (snap.truncated) detail += ' (aria truncated at 60k chars)';
   if (status !== 'pass') {
-    // What Jev saw, so the author can tune the claims against the real state.
-    const file = dumpDebug(StepKind.expect, { expectations: step.expectations, probabilities, state: snap });
+    const missed = step.expectations.filter((_, i) => decide(probabilities[i], 'expect') !== 'pass');
+    // What the verdict used, so the author can tune the claims against that state.
+    const seen = judged.longContext && judged.state.fullAria
+      ? { ...snap, aria: judged.state.fullAria, truncated: false } : snap;
+    const file = dumpDebug(StepKind.expect, { expectations: step.expectations, probabilities, state: seen });
     detail += ` — state: ${file}`;
+    const advice = await failureAdvice(ctx, missed, judged.state.fullAria ?? snap.aria);
+    if (advice.line) detail += ` — ${advice.line}`;
+    if (advice.hint) detail += ` — ${advice.hint}`;
+    if (advice.tokens > 0) ctx.track(advice.tokens);
   }
   return { step: stepLabel, status, detail };
+}
+
+/** Playwright's own cap for one screenshot. A hung page must not hold the step. */
+const SCREENSHOT_TIMEOUT_MS = 10_000;
+
+/**
+ * A failed check can name what the viewport shows and when the tree splits the claim's words.
+ * Neither line changes `status`. A screenshot or model error leaves the detail without that line.
+ */
+async function failureAdvice(ctx: StepContext, claims: string[], aria: string): Promise<{ line?: string; hint?: string; tokens: number }> {
+  const hint = claims.some((claim) => splitTextHint(claim, aria)) ? SPLIT_TEXT_HINT : undefined;
+  const explained = await explainMisses(ctx, claims);
+  return { line: explained?.line, hint, tokens: explained?.tokens ?? 0 };
+}
+
+async function explainMisses(ctx: StepContext, claims: string[]): Promise<{ line: string; tokens: number } | null> {
+  if (!claims.length) return null;
+  let png: Uint8Array;
+  try {
+    png = await ctx.page.screenshot({ type: 'png', timeout: SCREENSHOT_TIMEOUT_MS });
+  } catch {
+    return null;
+  }
+  try {
+    if (intelligence.explain) return await intelligence.explain(claims, png);
+    const supported = imageBackend();
+    if (supported === null) return null;
+    return await explainFailure(claims, png, { supported, ask });
+  } catch {
+    return null;
+  }
 }
 
 /** In no-judge, a claim is compared with its recorded passing state for at most this long after the page settled. */
@@ -337,7 +379,12 @@ function recordClaims(ctx: StepContext, claims: string[], within: string | undef
   if (!ref || !ctx.lock?.judges) return;
   const hash = stateHash(state, ctx.parameters);
   ctx.lock.record(ref, { state: hash, spatial });
-  saveRecordedState(hash, { claims, state: state.snap, events: state.events });
+  saveRecordedState(hash, { claims, state: hashedSnap(state), events: state.events });
+}
+
+/** The tree the lock hashed. The uncut text is what a later no-judge run compares. */
+function hashedSnap(state: Observed): Snapshot {
+  return state.fullAria === undefined ? state.snap : { ...state.snap, aria: state.fullAria, truncated: false };
 }
 
 /**

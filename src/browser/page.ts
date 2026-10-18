@@ -301,7 +301,14 @@ export async function inPasswordField(page: Page, value: string): Promise<boolea
  * appends its popup at the end of the body, where a long page leaves it out. Password values are masked
  * (maskPasswords) in every tree.
  */
-function toSnapshot(page: Page, title: string, aria: string, secrets: ReadonlySet<string>, dialogs: string[] = []): Snapshot {
+/** The snapshot tools see, plus the uncut tree when the cap removed part of it. The uncut tree stays off `snap`. */
+export interface PageCapture {
+  snap: Snapshot;
+  /** Masked tree before the cap. Dialogs the page tree does not already contain are appended whole. */
+  fullAria?: string;
+}
+
+function toSnapshot(page: Page, title: string, aria: string, secrets: ReadonlySet<string>, dialogs: string[] = []): PageCapture {
   const view = (tree: string) => maskPasswords(markUnchecked(shortenUrls(tree)), secrets);
   const marked = view(aria);
   const head = marked.slice(0, ARIA_MAX_CHARS);
@@ -320,7 +327,14 @@ function toSnapshot(page: Page, title: string, aria: string, secrets: ReadonlySe
     if (changed) tail = next;
     kept = head.slice(0, ARIA_MAX_CHARS - tail.length);
   }
-  return { url: page.url(), title, aria: kept + tail, truncated: marked.length > ARIA_MAX_CHARS };
+  const truncated = marked.length > ARIA_MAX_CHARS;
+  const snap: Snapshot = { url: page.url(), title, aria: kept + tail, truncated };
+  if (!truncated) return { snap };
+  // Dialogs already inside the uncut tree stay there. The rest are appended whole, not sliced to the cap.
+  const flatMarked = flat(marked);
+  const extra = trees.filter((dialog) => !flatMarked.includes(flat(dialog)))
+    .map((dialog) => `\n--- open dialog ---\n${dialog}`).join('');
+  return { snap, fullAria: marked + extra };
 }
 
 /** Open dialogs, also in shadow roots; hidden ones have no tree to keep. */
@@ -360,7 +374,7 @@ async function iframeAria(frame: Frame): Promise<string | null> {
 }
 
 /** The page's accessibility tree, each iframe's tree appended under its own header. An empty iframe has none. */
-export async function snapshot(page: Page): Promise<Snapshot> {
+export async function capturePage(page: Page): Promise<PageCapture> {
   const iframes = page.frames().slice(1);
   const [title, bodyAria, iframeArias, secrets] = await Promise.all([
     page.title(),
@@ -370,12 +384,23 @@ export async function snapshot(page: Page): Promise<Snapshot> {
   ]);
   const iframeSections = iframes.map((frame, i) => iframeArias[i] ? `\n--- iframe ${frameLabel(frame)} ---\n${iframeArias[i]}` : '');
   const aria = bodyAria + iframeSections.join('');
-  const snap = toSnapshot(page, title, aria, secrets);
-  return snap.truncated ? toSnapshot(page, title, aria, secrets, await openDialogs(page)) : snap;
+  const first = toSnapshot(page, title, aria, secrets);
+  return first.snap.truncated ? toSnapshot(page, title, aria, secrets, await openDialogs(page)) : first;
+}
+
+/** The public snapshot. The uncut tree is only on `capturePage`. */
+export async function snapshot(page: Page): Promise<Snapshot> {
+  return (await capturePage(page)).snap;
+}
+
+/** capturePage of one region, for `within`. */
+export async function captureRegion(page: Page, region: Locator): Promise<PageCapture> {
+  const [title, aria, secrets] = await Promise.all([page.title(), fieldAria(region), passwordValues(page)]);
+  const captured = toSnapshot(page, title, aria, secrets);
+  return { snap: { ...captured.snap, region: true }, ...(captured.fullAria !== undefined ? { fullAria: captured.fullAria } : {}) };
 }
 
 /** snapshot() of one region, for `within`. */
 export async function snapshotRegion(page: Page, region: Locator): Promise<Snapshot> {
-  const [title, aria, secrets] = await Promise.all([page.title(), fieldAria(region), passwordValues(page)]);
-  return { ...toSnapshot(page, title, aria, secrets), region: true };
+  return (await captureRegion(page, region)).snap;
 }

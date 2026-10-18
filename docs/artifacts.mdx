@@ -55,6 +55,21 @@ one note for the run. Screenshots and debug files still work.
 On desktop and mobile, `--trace` must be `off` when an artifacts folder is set. Another mode stops the run
 (exit `2`). These CLIs ignore an `artifacts.trace` mode in the config file. Read the [shared config file](running.mdx#desktop-and-mobile-in-the-same-folder).
 
+### What a failed check sends
+
+A browser `expect` that does not pass sends the viewport PNG to TypeSafe.
+This happens also when `--artifacts` is off.
+The step detail then has a `screenshot:` line.
+The line does not change `pass` or `fail`.
+If the image call fails, the line is absent and the result stays.
+Each side of the image must be from 280 to 1568 pixels.
+A shot outside that range is not sent.
+plain prints a skip line instead.
+The Vercel AI Gateway path has no image support.
+plain skips the image there and prints that reason.
+Desktop and mobile checks do not send a screenshot.
+Read [Security and data](security.mdx) for the other data a run sends.
+
 ### Jev debug files
 
 When a step detail names a Jev debug file (for example `state: <file>.json` or `candidates: <file>.json`),
