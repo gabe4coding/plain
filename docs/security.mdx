@@ -25,9 +25,12 @@ The Vercel AI Gateway path does not get the image.
 Read [what a failed check sends](artifacts.mdx#what-a-failed-check-sends).
 Desktop and mobile checks do not send a screenshot to Jev.
 
-When a browser page is cut at 60,000 characters, plain sends the full tree once more to TypeSafe.
-That answer is the verdict.
-If the second call fails, plain keeps the first verdict.
+When a browser page is cut at 60,000 characters, plain sends a longer tree to TypeSafe.
+That tree stops at 400,000 characters.
+plain sends that longer tree once for the check.
+When plain keeps that look, its answer is the verdict.
+When the page changes while it settles, plain keeps the cut-tree verdict.
+If the longer-tree call fails, plain keeps the first verdict.
 The gateway path keeps the cut verdict.
 
 ## Files on the machine

@@ -57,6 +57,39 @@ test('a failed check appends the screenshot line and keeps the fail when the ima
   assert.equal(degraded.totalTokens, 3);
 });
 
+test('a check scoped with within does not send the viewport screenshot', async (t) => {
+  const url = html('<footer><strong>2</strong> items left</footer>');
+  const savedPick = intelligence.pick;
+  t.after(() => { intelligence.pick = savedPick; });
+  await withModel(t, async () => ({ probabilities: [0.05], tokens: 3 }),
+    async () => { throw new Error('scoped check must not read the viewport'); });
+  intelligence.pick = async (candidates) => [{
+    id: candidates[0]?.id ?? null, probability: 0.99, confidence: 0.99, probabilities: {}, tokens: 1,
+  }];
+  const result = await runSpec({
+    name: 'advice', url, dir: process.cwd(), dialogs: 'accept',
+    steps: [{ kind: 'goto', url }, { kind: 'expect', expectations: ['the footer says 2 items left'], within: 'the footer' }],
+  }, options);
+  assert.equal(result.status, 'fail', JSON.stringify(result.steps));
+  assert.doesNotMatch(result.steps[1].detail ?? '', /screenshot:/);
+  assert.match(result.steps[1].detail ?? '', /hint:/);
+});
+
+test('a cut page sends long context once when the settled page differs', async (t) => {
+  const long = Array.from({ length: 2500 }, (_, i) => `<p>Paragraph number ${i} of a long article body</p>`).join('');
+  const ticking = `<p id="swap">Early</p>${long}<script>let n=0; const id=setInterval(() => {`
+    + ` const el=document.getElementById('swap'); if (el) el.textContent='tick '+(++n); if (n>15) clearInterval(id); }, 100);</script>`;
+  const url = html(`<main>${ticking}</main>`);
+  const longCalls: boolean[] = [];
+  await withModel(t, async (_state, _claims, judgeOptions) => {
+    longCalls.push(judgeOptions?.longContext === true);
+    return { probabilities: [0.99], tokens: 1 };
+  }, async () => { throw new Error('must not explain a pass'); });
+  const result = await runSpec(spec(url, ['the page has a paragraph']), { ...options, timeout: 8000 });
+  assert.equal(result.status, 'pass', JSON.stringify(result.steps));
+  assert.equal(longCalls.filter(Boolean).length, 1, JSON.stringify(longCalls));
+});
+
 test('a zero-token screenshot line is printed and not counted as a model call', async (t) => {
   const url = html('<p>Hello</p>');
   await withModel(t, async () => ({ probabilities: [0.04], tokens: 3 }),

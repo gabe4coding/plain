@@ -102,6 +102,8 @@ function pathOf(url: string): string {
 
 async function judgeObservation(ctx: StepContext, claims: string[], spatial: boolean, within?: Locator,
   skip?: (observed: Observed) => boolean, ahead: string[] = []): Promise<Judged> {
+  // The settle re-check keeps the cut tree: a second long-context call repeats the whole uncut page.
+  let spentLongContext = false;
   const { state, result } = await settledAsk(ctx, {
     // A scoped region can live in a shadow root, outside the main document's mutation observer.
     reobserve: spatial || within !== undefined,
@@ -111,7 +113,9 @@ async function judgeObservation(ctx: StepContext, claims: string[], spatial: boo
       const known = within ? null : reuse(ctx, observed, claims, spatial);
       if (known) return known;
       const asked = [...claims, ...ahead];
-      const result = await judgeState(observed.snap, asked, observed.events, intelligence, { fullAria: observed.fullAria });
+      const fullAria = spentLongContext ? undefined : observed.fullAria;
+      if (fullAria && observed.snap.truncated && fullAria.length > observed.snap.aria.length) spentLongContext = true;
+      const result = await judgeState(observed.snap, asked, observed.events, intelligence, { fullAria });
       if (ahead.length) prefetched.set(ctx, {
         observed, spatial, longContext: result.longContext,
         probabilities: new Map(asked.map((claim, i) => [claim, result.probabilities[i]])),

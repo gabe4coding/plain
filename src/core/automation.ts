@@ -132,6 +132,11 @@ export async function askSettled<F, R>(options: {
 }
 
 const MIN_ARIA_TO_HALVE = 4000;
+/**
+ * Characters of uncut tree sent on one long-context retry. The 60k capture is about 15k tokens, so 400k stays
+ * near 100k tokens, inside the 262k long-context window.
+ */
+export const LONG_CONTEXT_MAX_CHARS = 400_000;
 /** Sent with every layout: names, values, visibility and relations must all hold for the same elements. */
 const SPATIAL_CLAIM_RULES = 'A spatial claim requires all its named text, current values, displayed selections, visibility and spatial relations to hold for the same elements. If any named text, value or selection differs, or required visible text belongs to an invisible element, the entire claim is false. A correct spatial relation alone does not make a claim with a mismatched name or value true. An available unselected option in the accessibility tree is not displayed by a collapsed select. Read the rendered evidence for physical position and visibility.';
 
@@ -163,12 +168,13 @@ export async function judgeState(snap: Snapshot, claims: string[], events: strin
   }
 }
 
-/** The full tree, once, and only when the capture cut it. A failure keeps `first`. */
+/** The uncut tree, once, and only when the capture cut it. A tree past the cap is cut. A failure keeps `first`. */
 async function withLongContext(snap: Snapshot, aria: string, events: string[], claims: string[],
   first: { probabilities: number[]; tokens: number }, fullAria: string | undefined, ai: Intelligence) {
-  if (!snap.truncated || !fullAria || fullAria.length <= aria.length) return { ...first, requests: 1 };
+  const tree = fullAria === undefined ? undefined : fullAria.slice(0, LONG_CONTEXT_MAX_CHARS);
+  if (!snap.truncated || !tree || tree.length <= aria.length) return { ...first, requests: 1 };
   try {
-    const retried = await ai.judge(judgmentBody(snap, fullAria, events), claims, { longContext: true });
+    const retried = await ai.judge(judgmentBody(snap, tree, events), claims, { longContext: true });
     if (retried.probabilities.length !== claims.length) throw new Error('Jev returned fewer judgments than claims');
     return { probabilities: retried.probabilities, tokens: first.tokens + retried.tokens, requests: 2, longContext: true as const };
   } catch (error) {

@@ -25,8 +25,10 @@
 - The desktop and mobile engines are marked beta.
   The docs no longer claim React Native support.
 - New guides: Security and data, and the web pilot runbook.
-- Lock files move to version 2, because a claim hash now includes the uncut page text.
-  Older lock files are ignored.
+- New lock files are version 2, because a claim hash includes the uncut page text.
+  A version 1 lock still replays locators.
+  A claim hash that does not match is judged again.
+  plain prints `re-record to upgrade lock file`.
 
 ### Since 3.0.0
 

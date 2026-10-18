@@ -10,4 +10,5 @@ test('splitTextHint matches words the tree splits across lines and skips a phras
   assert.equal(splitTextHint('the Login button is shown', '- button "Login"'), false);
   assert.equal(splitTextHint('the total is 20', '- text: 2\n- text: items'), false);
   assert.equal(splitTextHint('hello', split), false);
+  assert.equal(splitTextHint('the button A is to the left of the button B', '- button "A"\n- button "B"'), false);
 });

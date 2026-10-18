@@ -75,6 +75,8 @@ A claim is one fact about something that is visible when the condition is true.
 - **Name the element when the tree splits the text.** The tree can put `2` and `items left` on two lines.
   `the footer says 2 items left` can then fail. Write `the counter shows 2 items left`.
   A failed check can add a `hint:` line. The line does not change the result.
+  The hint is for a text claim or a count claim.
+  A spatial claim does not get the hint.
   A `screenshot:` line is described in [failure artifacts](artifacts.mdx#what-a-failed-check-sends).
 - **Name a spatial relation explicitly.** Write `the button B is to the left of the button A`.
   Targets and claims that need layout get rendered bounds in all engines. In the browser, plain boxes with text get bounds too.

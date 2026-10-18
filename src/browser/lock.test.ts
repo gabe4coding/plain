@@ -23,6 +23,7 @@ function setup(t: { after: (fn: () => Promise<void>) => void }) {
   const file = path.join(dir, 'go.yaml');
   const saved = { ...intelligence };
   const calls = { pick: 0, judge: 0 };
+  const logs: string[] = [];
   let judgeFails = false;
   let pickScore = 0.97;
   intelligence.ask = async (_state, questions) => ({ tokens: 0, answers: questions.map(() => ({ choice: 'semantic', confidence: 1 })) });
@@ -57,7 +58,7 @@ function setup(t: { after: (fn: () => Promise<void>) => void }) {
     const services = { provider: () => { if (mode === 'no-judge') throw new Error('no-judge asked for a key'); return 'typesafe' as const; },
       warmUp: () => {} };
     const cwd = process.cwd(), error = console.error;
-    process.chdir(dir); console.error = () => {};
+    process.chdir(dir); console.error = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
     try {
       const report = await runSuite(engine, opts, services);
       return { report, steps: report.specs[0].attempts[0].steps };
@@ -66,7 +67,7 @@ function setup(t: { after: (fn: () => Promise<void>) => void }) {
     }
   };
   const lock = () => JSON.parse(fs.readFileSync(path.join(dir, 'go.lock.json'), 'utf8')) as { version: number; entries: Record<string, Record<string, unknown>> };
-  return { write, run, lock, calls, file, failJudge: (on: boolean) => { judgeFails = on; }, scorePicks: (score: number) => { pickScore = score; } };
+  return { write, run, lock, calls, logs, file, dir, failJudge: (on: boolean) => { judgeFails = on; }, scorePicks: (score: number) => { pickScore = score; } };
 }
 
 test('judge records the lock; no-judge replays it with no Jev call', async (t) => {
@@ -93,6 +94,39 @@ test('judge records the lock; no-judge replays it with no Jev call', async (t) =
   assert.match(replayed.steps[1].detail!, /getByRole\('button', \{ name: 'Go', exact: true \}\) \(replayed\)/);
   assert.match(replayed.steps[2].detail!, /recorded passing state/);
   assert.equal(replayed.report.totals.replayed, 1);
+});
+
+test('a version 1 lock replays locators in no-judge and asks to re-record', async (t) => {
+  const s = setup(t);
+  s.write(page());
+  assert.equal((await s.run('judge')).report.status, 'pass');
+  const lock = s.lock();
+  lock.version = 1;
+  fs.writeFileSync(path.join(s.dir, 'go.lock.json'), JSON.stringify(lock, null, 2) + '\n');
+  const replayed = await s.run('no-judge');
+  assert.equal(replayed.report.status, 'pass', JSON.stringify(replayed.steps));
+  assert.equal(replayed.steps[1].replayed, true);
+  assert.match(replayed.steps[1].detail!, /replayed/);
+  assert.match(replayed.steps[2].detail!, /recorded passing state/);
+  assert.equal(replayed.report.specs[0].attempts[0].jevCalls, 0);
+  assert.match(s.logs.join('\n'), /re-record to upgrade lock file/);
+});
+
+test('a version 1 claim hash that does not match is judged again', async (t) => {
+  const s = setup(t);
+  s.write(page());
+  assert.equal((await s.run('judge')).report.status, 'pass');
+  const lock = s.lock();
+  lock.version = 1;
+  for (const entry of Object.values(lock.entries)) if (typeof entry.state === 'string') entry.state = '0'.repeat(64);
+  fs.writeFileSync(path.join(s.dir, 'go.lock.json'), JSON.stringify(lock, null, 2) + '\n');
+  const replayed = await s.run('no-judge', 8000);
+  assert.equal(replayed.report.status, 'pass', JSON.stringify(replayed.steps));
+  assert.equal(replayed.steps[1].replayed, true);
+  assert.equal(s.calls.pick, 1, 'the locator still replays');
+  assert.equal(s.calls.judge, 2, 'the stale hash is judged again');
+  assert.doesNotMatch(replayed.steps[2].detail ?? '', /no recorded/);
+  assert.equal(s.lock().version, 1, 'no-judge does not rewrite the lock');
 });
 
 test('a renamed button: no-judge is inconclusive, auto-healing picks again and rewrites the lock', async (t) => {

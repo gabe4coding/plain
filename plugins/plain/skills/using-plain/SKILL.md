@@ -113,9 +113,11 @@ A claim is one fact about something that is visible when the condition holds. `e
 - Quote the exact visible text rather than a page area the tree does not label: `the text "2 items left!"
   is shown` (0.98), where `the footer says 2 items left` stayed at 0.47 (TodoMVC's footer is plain text).
   Name the element that shows the text (`the counter shows 2 items left`) when the tree splits it across lines.
-- A failed browser check can add `screenshot:` (what the viewport shows) and `hint:` (the tree split the phrase).
-  Neither line changes pass or fail. A page cut at 60k characters is judged again with long context, and that
-  answer is the verdict. If the image call or the retry fails, the first result stays.
+- A failed browser check can add `screenshot:` (what the whole viewport shows) and `hint:` (the tree split a text
+  or count phrase). Neither line changes pass or fail. A check with `within` does not add `screenshot:`. A spatial
+  claim does not add `hint:`. A page cut at 60k characters is judged again on a longer tree, capped at 400k
+  characters, once per check. That answer is the verdict unless the page changes while it settles. If the image
+  call or the retry fails, the first result stays.
 - Nondeterministic pages: claim what is stable (`a notification bar is shown at the top`), not the random text.
 - `wait` when the thing appears after a delay or animation; `expect` for a settled page.
 - On a large page, scope a wait to where the thing will appear: `step {wait: {that: "a price is shown", within:

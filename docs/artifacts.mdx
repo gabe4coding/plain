@@ -62,6 +62,8 @@ This happens also when `--artifacts` is off.
 The step detail then has a `screenshot:` line.
 The line does not change `pass` or `fail`.
 If the image call fails, the line is absent and the result stays.
+An `expect` with `within` does not send the screenshot.
+The shot is the whole viewport, and the claim is about one region.
 Each side of the image must be from 280 to 1568 pixels.
 A shot outside that range is not sent.
 plain prints a skip line instead.

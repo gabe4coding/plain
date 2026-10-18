@@ -38,7 +38,7 @@ test('writeSaved locks only the saved steps, removes a lock with no entry left, 
     const file = join(dir, 'flow.yaml');
     assert.deepEqual(writeSaved(file, { name: 'flow', steps }, recorded), { lock: lockPath(file) });
     assert.deepEqual(parse(readFileSync(file, 'utf8')), { name: 'flow', steps });
-    assert.deepEqual(parseLock(readFileSync(lockPath(file), 'utf8')),
+    assert.deepEqual(parseLock(readFileSync(lockPath(file), 'utf8'))?.entries,
       new Map([[entryKey(ref(0)), entry(0)], [entryKey(ref(1)), entry(1)]]));
     assert.deepEqual(writeSaved(file, { name: 'flow', steps }, []), {});
     assert.equal(existsSync(lockPath(file)), false);

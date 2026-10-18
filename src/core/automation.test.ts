@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTargets, judgeState, askSettled } from './automation.js';
+import { LONG_CONTEXT_MAX_CHARS, resolveTargets, judgeState, askSettled } from './automation.js';
 import { fakeIntelligence } from './fake-intelligence.test.js';
 const adapter = { candidates: [{ id: 1, desc: 'button OK' }], state: { url: 'desktop://test', title: 'Test' }, element: () => 'handle' };
 const ai = fakeIntelligence({
@@ -73,6 +73,11 @@ test('a cut tree is judged again on the full text; a failed retry keeps the firs
   await judgeState({ ...snap, truncated: false }, ['a', 'b'], [], retrying, { fullAria: 'full' });
   await judgeState(snap, ['a', 'b'], [], retrying, { fullAria: 'cut' });
   assert.deepEqual(calls.map((call) => call.longContext), [undefined, undefined]);
+
+  calls.length = 0;
+  await judgeState(snap, ['a', 'b'], [], retrying, { fullAria: 'y'.repeat(LONG_CONTEXT_MAX_CHARS + 80) });
+  assert.equal(calls[1].aria.length, LONG_CONTEXT_MAX_CHARS);
+  assert.equal(calls[1].longContext, true);
 });
 
 test('askSettled keeps the early answer when the settled look is the same, and asks again when it is not', async () => {

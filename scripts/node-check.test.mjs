@@ -6,7 +6,11 @@ import { isOlderNode, nodeVersionMessage } from '../bin/node-check.mjs';
 test('nodeVersionMessage names the command, the minimum and the running version', () => {
   assert.equal(nodeVersionMessage('20.19.0'),
     'plain requires Node.js 22 or newer. This process is Node.js 20.19.0.\nInstall Node.js 22 or newer and run the command again.');
-  assert.equal(nodeVersionMessage('22.14.0', '22.19'),
+  assert.equal(nodeVersionMessage('20.19.0', '22', 'plain-computer'),
+    'plain-computer requires Node.js 22 or newer. This process is Node.js 20.19.0.\nInstall Node.js 22 or newer and run the command again.');
+  assert.equal(nodeVersionMessage('20.19.0', '22', 'plain-mobile'),
+    'plain-mobile requires Node.js 22 or newer. This process is Node.js 20.19.0.\nInstall Node.js 22 or newer and run the command again.');
+  assert.equal(nodeVersionMessage('22.14.0', '22.19', 'plain-mobile'),
     'plain-mobile requires Node.js 22.19 or newer. This process is Node.js 22.14.0.\nInstall Node.js 22.19 or newer and run the command again.');
 });
 

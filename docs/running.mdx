@@ -170,6 +170,13 @@ A lock file has one entry for each recorded step, keyed by the step position and
   `button "Save" in window "Editor"`.
 - A claim entry holds only a hash of the page state that Jev judged true. It holds no page text.
 
+A lock file with version 1 is from an older plain.
+plain still reads the locators in that file.
+A claim hash in a version 1 file omits the uncut tree.
+When that hash does not match the page, plain judges the claim again.
+plain prints `re-record to upgrade lock file` and the file path on one line.
+Run `plain --mode judge` and commit the new lock file.
+
 plain writes each value that the run filled in (`${env.*}`, `${hooks.*}`) back as its placeholder. This applies to
 the keys, the locators, the descriptions and the hashed states. Thus a lock file holds no value from `env` or from
 setup. A run with other values, for example a title that a setup hook makes unique, uses the same entries.

@@ -1,5 +1,10 @@
-/** Shown beside a failed check whose words sit on different lines of the tree. It does not change the verdict. */
+import { sureSpatial } from '../jev/evidence.js';
+
+/** Shown beside a failed text or count check whose words sit on different lines of the tree. It does not change the verdict. */
 export const SPLIT_TEXT_HINT = 'hint: the accessibility tree splits this text across elements. Name the element that shows it (for example "the counter shows 2 items left") instead of one phrase or a landmark the tree does not have';
+
+/** "2 items left" is a count. The word left there is not a spatial relation. */
+const COUNT_LEFT = /\b(?:items?|\d+)\s+left\b/gi;
 
 const STOP = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'to', 'of', 'in', 'on', 'at', 'for',
   'and', 'or', 'with', 'that', 'this', 'it', 'its', 'says', 'say', 'said', 'shows', 'show', 'shown', 'there', 'has', 'have', 'page']);
@@ -9,6 +14,7 @@ const STOP = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been'
  * line. A button named Login does not match: both words share the button's line.
  */
 export function splitTextHint(claim: string, aria: string): boolean {
+  if (sureSpatial(claim.replace(COUNT_LEFT, 'count'))) return false;
   const words = (claim.match(/[a-z0-9]+(?:\.[a-z0-9]+)*/gi) ?? [])
     .map((word) => word.toLowerCase()).filter((word) => !STOP.has(word));
   const lines = aria.split('\n');

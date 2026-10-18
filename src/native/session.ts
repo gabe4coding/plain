@@ -417,10 +417,10 @@ export abstract class NativeSession<T, K extends string, S extends NativeStep, A
    * `expect` judges once; `wait` polls until the claim holds. Both judge a region alone when `within` names one.
    * An unchanged UI after a clear "no" is not asked again.
    */
-  private async assert(step: S & Assertion): Promise<StepResult> {
+  private async assert(step: S & Assertion, force = false): Promise<StepResult> {
     const claims = step.kind === 'expect' ? step.expectations : [step.condition];
     const ref = this.refOf(claimSlot(claims.map((claim) => this.generic(claim)), step.within === undefined ? undefined : this.generic(step.within)));
-    if (ref && this.lock && !this.lock.judges) return this.replayClaims(step, ref, claims);
+    if (ref && this.lock && !this.lock.judges && !force) return this.replayClaims(step, ref, claims);
     const deadline = Date.now() + this.timeout;
     let polls = 0;
     let lastSnapshotJson = '';
@@ -472,7 +472,12 @@ export abstract class NativeSession<T, K extends string, S extends NativeStep, A
    * judged the claims true; inconclusive otherwise, with the state seen.
    */
   private async replayClaims(step: S & Assertion, ref: LockRef, claims: string[]): Promise<StepResult> {
-    const entry = this.lock!.lookup(ref);
+    const lock = this.lock;
+    if (!lock) {
+      return { step: this.label(step), status: 'inconclusive',
+        detail: 'no-judge: no recorded passing state for this step; run with --mode auto-healing or judge to record it' };
+    }
+    const entry = lock.lookup(ref);
     if (!entry || isTargetEntry(entry)) {
       return { step: this.label(step), status: 'inconclusive',
         detail: 'no-judge: no recorded passing state for this step; run with --mode auto-healing or judge to record it' };
@@ -488,6 +493,7 @@ export abstract class NativeSession<T, K extends string, S extends NativeStep, A
       const frame = await this.timed('capture', () => this.adapter.capture('region', region, entry.spatial ? { spatial: true } : undefined));
       if (nativeStateHash(frame.snapshot, this.parameters) === entry.state) return { step: this.label(step), status: 'pass', detail: 'the recorded passing state (no-judge)' };
       if (Date.now() >= deadline) {
+        if (lock.staleClaims(ref.at.file)) return this.assert(step, true);
         const file = dumpDebug(step.kind, { claims, state: frame.snapshot });
         return { step: this.label(step), status: 'inconclusive',
           detail: `no-judge: the ${region === undefined ? 'screen' : 'region'} differs from the recorded passing state — state: ${file}${recordedStateNote(entry.state)}` };

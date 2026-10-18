@@ -17,6 +17,9 @@ import { DUMP_DIR, errorMessage, type StepResult } from './results.js';
  * back as its placeholder (src/core/parameters.ts), in keys, locators and the hashed states alike.
  */
 export const LOCK_VERSION = 2;
+/** A version 1 file still has the same locators. Its claim hashes predate the uncut-tree hash. */
+const READABLE_LOCK_VERSIONS = new Set([1, LOCK_VERSION]);
+export const LOCK_UPGRADE_NOTICE = 're-record to upgrade lock file';
 export const RUN_MODES = ['judge', 'no-judge', 'auto-healing'] as const;
 export type RunMode = typeof RUN_MODES[number];
 
@@ -64,16 +67,17 @@ const isEntry = (value: unknown): value is LockEntry => {
     (typeof entry.state === 'string' && typeof entry.spatial === 'boolean');
 };
 
-/** The entries of a sidecar, or null when it is unreadable or of another version. */
-export function parseLock(text: string): Map<string, LockEntry> | null {
+/** The entries of a sidecar, or null when it is unreadable or of another version. Version 1 is readable. */
+export function parseLock(text: string): { entries: Map<string, LockEntry>; version: number } | null {
   let raw: unknown;
   try { raw = JSON.parse(text); } catch { return null; }
   if (raw === null || typeof raw !== 'object') return null;
   const file = raw as Record<string, unknown>;
-  if (file.version !== LOCK_VERSION || file.entries === null || typeof file.entries !== 'object' || Array.isArray(file.entries)) return null;
+  if (typeof file.version !== 'number' || !READABLE_LOCK_VERSIONS.has(file.version) ||
+    file.entries === null || typeof file.entries !== 'object' || Array.isArray(file.entries)) return null;
   const out = new Map<string, LockEntry>();
   for (const [key, value] of Object.entries(file.entries)) if (isEntry(value)) out.set(key, value);
-  return out;
+  return { entries: out, version: file.version };
 }
 
 const indexOf = (key: string): number => {
@@ -106,7 +110,7 @@ const fileIO: LockIO = {
   write: (file, text) => fs.writeFileSync(file, text),
 };
 
-interface Sidecar { entries: Map<string, LockEntry>; dirty: boolean }
+interface Sidecar { entries: Map<string, LockEntry>; version: number; dirty: boolean }
 
 /** One per run: every sidecar read once, changed in memory as attempts pass, written once by write(). */
 export class LockStore {
@@ -118,14 +122,20 @@ export class LockStore {
     let sidecar = this.files.get(file);
     if (!sidecar) {
       const text = this.io.read(file);
-      sidecar = { entries: (text === undefined ? null : parseLock(text)) ?? new Map(), dirty: false };
+      const parsed = text === undefined ? null : parseLock(text);
+      sidecar = { entries: parsed?.entries ?? new Map(), version: parsed?.version ?? LOCK_VERSION, dirty: false };
       this.files.set(file, sidecar);
+      if (parsed?.version === 1) console.error(`plain: ${LOCK_UPGRADE_NOTICE}: ${file}`);
     }
     return sidecar;
   }
 
   get(ref: LockRef): LockEntry | undefined {
     return this.sidecar(ref.at.file).entries.get(entryKey(ref));
+  }
+
+  versionOf(source: string): number {
+    return this.sidecar(source).version;
   }
 
   set(ref: LockRef, entry: LockEntry): void {
@@ -184,6 +194,11 @@ export class LockAttempt {
 
   lookup(ref: LockRef): LockEntry | undefined {
     return this.replays && !this.closed ? this.store.get(ref) : undefined;
+  }
+
+  /** Version 1 claim hashes are not comparable with the uncut-tree hash. A miss is judged again. */
+  staleClaims(source: string): boolean {
+    return this.replays && !this.closed && this.store.versionOf(source) === 1;
   }
 
   /** What Jev decided in this step, kept if the step and the attempt pass. */
