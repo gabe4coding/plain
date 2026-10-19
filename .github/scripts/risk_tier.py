@@ -12,7 +12,9 @@ so a pull request cannot loosen its own rules.
 The core (`classify`) is a pure function of the changed files, the PR text, the base and
 head contents of a few manifests, and the Greptile check runs the caller fetched. `collect`
 reads the files from git. No network, no LLM. The reviewer signal is only those check runs:
-labels and comments are not inputs. A pass never lowers a tier.
+labels and comments are not inputs. One completed "Greptile Review" success from
+greptile-apps on the current head is a pass, and a pass never lowers the tier. Anything else
+raises the tier one step, stopping at T2-hard. HOLD stays HOLD.
 """
 
 from __future__ import annotations
@@ -287,10 +289,6 @@ def workflow_reason(f: FileChange) -> Reason:
 
 REVIEWER_CHECK = "Greptile Review"
 REVIEWER_APP = "greptile-apps"
-# success and neutral are Greptile's clean conclusions. Anything in _REVIEWER_FAIL can raise the tier.
-_REVIEWER_PASS = {"success", "neutral"}
-# A completed check with one of these is a verdict that can raise the tier.
-_REVIEWER_FAIL = {"failure", "stale", "cancelled", "timed_out", "action_required", "startup_failure"}
 
 
 def _check_slug(check: dict) -> str:
@@ -311,39 +309,19 @@ def _reviewer_on_head(check: dict, head_sha: str) -> bool:
             and check.get("head_sha") == head_sha)
 
 
-def reviewer_outcome(checks, head_sha: str) -> str:
-    """`passed`, `failed`, or `absent` from check runs only.
+def reviewer_passed(checks, head_sha: str) -> bool:
+    """True only for a completed Greptile Review check from greptile-apps on head_sha whose conclusion is success.
 
-    Labels and comment bodies are not read. A check from another app, or on an older SHA,
-    does not count. `failed` is a completed unsuccessful check (including stale) on the
-    current SHA. Missing and still-pending checks are `absent`: not a pass, and not a
-    verdict that raises the tier.
-    """
+    Labels and comments are not read. Missing, pending, neutral, a failure, the wrong app, and an
+    older SHA are not a pass."""
     if not head_sha:
-        return "absent"
-    failed = False
-    passed = False
-    pending = False
+        return False
     for check in checks or []:
         if not _reviewer_on_head(check, head_sha):
             continue
-        if check.get("status") != "completed":
-            pending = True
-            continue
-        if check.get("conclusion") in _REVIEWER_PASS:
-            passed = True
-        elif check.get("conclusion") in _REVIEWER_FAIL:
-            failed = True
-    if failed:
-        return "failed"
-    if pending or not passed:
-        return "absent"
-    return "passed"
-
-
-def reviewer_passed(checks, head_sha: str) -> bool:
-    """True only when Greptile Review from greptile-apps succeeded on head_sha."""
-    return reviewer_outcome(checks, head_sha) == "passed"
+        if check.get("status") == "completed" and check.get("conclusion") == "success":
+            return True
+    return False
 
 
 def _raised(tier: str) -> str:
@@ -465,17 +443,13 @@ def classify(change: Change, rules: dict) -> dict:
     base = max((r.tier for r in reasons), key=TIERS.index)
     reviewer = "not-checked"
     if change.checks is not None:
-        outcome = reviewer_outcome(change.checks, change.head_sha)
-        if outcome == "passed":
+        if reviewer_passed(change.checks, change.head_sha):
             reviewer = "passed"
             reasons.append(Reason(base, "reviewer-passed", "Greptile Review passed on the current head; the tier is not lowered"))
-        elif outcome == "failed":
-            reviewer = "not-passed"
-            up = _raised(base)
-            reasons.append(Reason(up, "reviewer-not-passed", "Greptile Review failed or is stale on the current head"))
         else:
             reviewer = "not-passed"
-            reasons.append(Reason(base, "reviewer-not-passed", "Greptile Review has not passed on the current head"))
+            up = _raised(base)
+            reasons.append(Reason(up, "reviewer-not-passed", "Greptile Review has not passed on the current head"))
     tier = max((r.tier for r in reasons), key=TIERS.index)
     return {
         "tier": tier,

@@ -11,11 +11,11 @@
 # A consumer of the tier must read the "risk tier" check of this workflow, never a label or a check
 # a `pull_request` run posted: a PR can forge those.
 #
-# Reviewer: the tier reads the "Greptile Review" check run from the greptile-apps app on the PR's
-# current head. success and neutral are a pass, and a pass never lowers the tier. A completed
-# failure, stale, cancelled, timed_out, action_required, or startup_failure conclusion raises the
-# tier one step and stops at T2-hard. A missing or pending check is not a pass and does not change
-# the tier. `check_run` runs this job again when Greptile finishes, so a late failure can still raise it.
+# Reviewer: the only pass is a completed "Greptile Review" check from greptile-apps on the current
+# head whose conclusion is success. A pass never lowers the tier. Anything else (missing, pending,
+# neutral, failure, cancelled, timed_out, action_required, startup_failure, stale, the wrong app,
+# or an older SHA) is not a pass and raises the tier one step, stopping at T2-hard. HOLD stays HOLD.
+# `check_run` runs this job again when Greptile finishes.
 name: risk
 
 on:  # yamllint disable-line rule:truthy

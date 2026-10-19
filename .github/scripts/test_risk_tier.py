@@ -440,65 +440,77 @@ def test_reviewer_config_is_t2_hard(path):
     assert tier(f(path, ["x"]))["tier"] == "T2-hard"
 
 
+def _soft_path():
+    soft = RULES.get("soft") or []
+    if not soft:
+        pytest.skip("this repo lists no sensitive files")
+    return soft[0].replace("**/", "").replace("/**", "/x")
+
+
 def test_passing_greptile_check_does_not_lower_the_tier():
     passed = [greptile()]
     assert rt.reviewer_passed(passed, HEAD) is True
     assert tier(f("README.md", ["x"]), checks=passed, head_sha=HEAD)["tier"] == "T0"
+    assert tier(f("src/a.py", ["x"]), checks=passed, head_sha=HEAD)["tier"] == "T1"
+    assert tier(f(_soft_path(), ["x"]), checks=passed, head_sha=HEAD)["tier"] == "T2-soft"
     hard = tier(f(".github/risk.yml", ["x"]), checks=passed, head_sha=HEAD)
     assert hard["tier"] == "T2-hard" and hard["reviewer"] == "passed"
+    held = tier(f("src/a.py", ["x"]), title="Prune redundant comments", checks=passed, head_sha=HEAD)
+    assert held["tier"] == "HOLD"
 
 
-def test_neutral_greptile_check_counts_as_passed():
-    checks = [greptile(conclusion="neutral")]
-    assert rt.reviewer_passed(checks, HEAD) is True
-    assert tier(f(".github/risk.yml", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T2-hard"
+def test_not_passed_raises_exactly_one_step():
+    missing = []
+    assert tier(f("README.md", ["x"]), checks=missing, head_sha=HEAD)["tier"] == "T1"
+    assert tier(f("src/a.py", ["x"]), checks=missing, head_sha=HEAD)["tier"] == "T2-soft"
+    assert tier(f(_soft_path(), ["x"]), checks=missing, head_sha=HEAD)["tier"] == "T2-hard"
+    assert tier(f(".github/risk.yml", ["x"]), checks=missing, head_sha=HEAD)["tier"] == "T2-hard"
+    held = tier(f("src/a.py", ["x"]), title="Prune redundant comments", checks=missing, head_sha=HEAD)
+    assert held["tier"] == "HOLD"
 
 
-def test_failing_greptile_check_raises_the_tier():
-    checks = [greptile(conclusion="failure")]
+@pytest.mark.parametrize("conclusion", ["neutral", "failure", "cancelled", "timed_out", "action_required",
+                                        "startup_failure", "stale"])
+def test_non_success_conclusion_is_not_passed_and_raises(conclusion):
+    checks = [greptile(conclusion=conclusion)]
     assert rt.reviewer_passed(checks, HEAD) is False
     docs = tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)
     assert docs["tier"] == "T1" and docs["reasons"][0]["rule"] == "reviewer-not-passed"
-    source = tier(f("src/a.py", ["x"]), checks=checks, head_sha=HEAD)
-    assert source["tier"] == "T2-soft"
-    # a failed review does not turn T2-hard into HOLD
-    assert tier(f(".github/risk.yml", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T2-hard"
+    assert docs["reviewer"] == "not-passed"
 
 
-def test_stale_greptile_check_is_not_passed_and_raises():
-    checks = [greptile(conclusion="stale")]
+def test_missing_greptile_check_raises():
+    assert rt.reviewer_passed([], HEAD) is False
+    r = tier(f("README.md", ["x"]), checks=[], head_sha=HEAD)
+    assert r["tier"] == "T1" and r["reviewer"] == "not-passed"
+
+
+@pytest.mark.parametrize("status", ["queued", "in_progress", "pending"])
+def test_pending_greptile_check_raises(status):
+    checks = [greptile(status=status, conclusion=None)]
+    assert rt.reviewer_passed(checks, HEAD) is False
+    assert tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T1"
+    # a success conclusion that has not completed is still not a pass
+    unfinished = [greptile(status="in_progress", conclusion="success")]
+    assert rt.reviewer_passed(unfinished, HEAD) is False
+    assert tier(f("README.md", ["x"]), checks=unfinished, head_sha=HEAD)["tier"] == "T1"
+
+
+def test_greptile_check_from_the_wrong_app_raises():
+    checks = [greptile(slug="someone-else")]
     assert rt.reviewer_passed(checks, HEAD) is False
     assert tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T1"
 
 
-def test_missing_greptile_check_is_not_passed():
-    assert rt.reviewer_passed([], HEAD) is False
-    r = tier(f("README.md", ["x"]), checks=[], head_sha=HEAD)
-    assert r["tier"] == "T0" and r["reviewer"] == "not-passed"
-
-
-def test_pending_greptile_check_is_not_passed():
-    checks = [greptile(status="in_progress", conclusion=None)]
-    assert rt.reviewer_passed(checks, HEAD) is False
-    assert tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T0"
-
-
-def test_greptile_check_from_the_wrong_app_is_not_passed():
-    checks = [greptile(slug="someone-else")]
-    assert rt.reviewer_passed(checks, HEAD) is False
-    assert tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T0"
-
-
-def test_greptile_check_on_an_old_sha_is_not_passed():
+def test_greptile_check_on_an_old_sha_raises():
     old = "b" * 40
-    checks = [greptile(head_sha=old)]
-    assert rt.reviewer_passed(checks, HEAD) is False
-    assert tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T0"
-    # a pass on an older commit does not count, and a failure there does not raise this head
-    assert rt.reviewer_passed([greptile(conclusion="failure", head_sha=old)], HEAD) is False
-    assert tier(f("README.md", ["x"]), checks=[greptile(conclusion="failure", head_sha=old)], head_sha=HEAD)["tier"] == "T0"
-    # the current head still wins when both are present
+    assert rt.reviewer_passed([greptile(head_sha=old)], HEAD) is False
+    assert tier(f("README.md", ["x"]), checks=[greptile(head_sha=old)], head_sha=HEAD)["tier"] == "T1"
+    assert tier(f("README.md", ["x"]), checks=[greptile(conclusion="failure", head_sha=old)], head_sha=HEAD)["tier"] == "T1"
+    # a success on this head is a pass even if an older commit failed
     assert rt.reviewer_passed([greptile(conclusion="failure", head_sha=old), greptile()], HEAD) is True
+    assert tier(f("README.md", ["x"]), checks=[greptile(head_sha=old), greptile()], head_sha=HEAD)["tier"] == "T0"
+    # a success on an older commit does not cover a failure on this head
     current_fail = [greptile(head_sha=old), greptile(conclusion="failure")]
     assert rt.reviewer_passed(current_fail, HEAD) is False
     assert tier(f("README.md", ["x"]), checks=current_fail, head_sha=HEAD)["tier"] == "T1"
@@ -508,7 +520,7 @@ def test_a_comment_or_label_is_not_the_reviewer_signal():
     checks = [{"name": "Greptile Review", "body": "LGTM", "labels": ["risk:t0"],
                "head_sha": HEAD, "app": {"slug": "greptile-apps"}}]
     assert rt.reviewer_passed(checks, HEAD) is False
-    assert tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T0"
+    assert tier(f("README.md", ["x"]), checks=checks, head_sha=HEAD)["tier"] == "T1"
 
 
 def test_cli_applies_a_checks_file(tmp_path):
