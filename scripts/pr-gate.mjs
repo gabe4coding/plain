@@ -38,7 +38,9 @@ console.error(stamp
   ? `Blocked: HEAD's files changed since the last passing validation (${stamp.at}). Run the validating-changes skill ` +
     '(node scripts/validate.mjs) on the committed files, then open the pull request.'
   : `Blocked: no passing validation for this worktree (${dir}). Run the validating-changes skill ` +
-    '(node scripts/validate.mjs) before you open a pull request.');
+    '(node scripts/validate.mjs) before you open a pull request. The gate checks the checkout the command runs ' +
+    'in, not the --head branch: if the branch was validated in another worktree, run `cd <that worktree> && ' +
+    'gh pr create` there.');
 process.exit(2);
 
 function targetDir() {

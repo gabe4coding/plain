@@ -60,6 +60,7 @@ test('checks the input cwd, not the process cwd', () => {
   const { code, stderr } = gate({ cwd: main, tool_input: create }, worktree);
   assert.equal(code, 2);
   assert.match(stderr, /no passing validation for this worktree/);
+  assert.match(stderr, /cd <that worktree> && gh pr create/);
 });
 
 test('follows each cd before the command, and a workdir, to the worktree', () => {
