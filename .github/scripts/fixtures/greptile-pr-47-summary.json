@@ -1,0 +1,52 @@
+[
+  {
+    "id": 6265579780,
+    "user": {
+      "login": "greptile-apps[bot]",
+      "type": "Bot"
+    },
+    "created_at": "2026-10-19T10:55:54Z",
+    "updated_at": "2026-10-19T11:25:14Z",
+    "body": "<!-- greptile_summary -->\nConfidence Score: 0/5\nDo not merge until the three new gaps in the hint-file guard are fixed.\n1. <img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\">&nbsp;<img alt=\"Security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\">&nbsp;**Copy commands skip approval** <a href=\"https://github.com/gabe4coding/claude-code-mode/pull/47#discussion_r4313241737\">\u25b6</a>\n2. <img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\">&nbsp;<img alt=\"Security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\">&nbsp;**Brace spellings skip approval** <a href=\"https://github.com/gabe4coding/claude-code-mode/pull/47#discussion_r4313241748\">\u25b6</a>\n3. <img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\">&nbsp;<img alt=\"Security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\">&nbsp;**Relative deletions skip approval** <a href=\"https://github.com/gabe4coding/claude-code-mode/pull/47#discussion_r4313241756\">\u25b6</a>\n<!-- greptile_confidence_score:0 -->\n<sub>Reviews (2) \u00b7 Last reviewed commit: [\"Bash guard: close the spellings the revi...\"](https://github.com/gabe4coding/claude-code-mode/commit/5075dbc6918a73c32ed780236d3812bd007318f7) \u00b7 [Reviewed by Greptile](https://www.greptile.com/?utm_source=greptile_review&utm_medium=github&utm_campaign=review_public&utm_content=gabe4coding/claude-code-mode)</sub>\n"
+  },
+  {
+    "id": 6265459479,
+    "user": {
+      "login": "gabe-bots[bot]",
+      "type": "Bot"
+    },
+    "created_at": "2026-10-19T10:48:39Z",
+    "updated_at": "2026-10-19T10:48:39Z",
+    "body": "@greptileai review"
+  },
+  {
+    "id": 6265757371,
+    "user": {
+      "login": "gabe-bots[bot]",
+      "type": "Bot"
+    },
+    "created_at": "2026-10-19T11:06:24Z",
+    "updated_at": "2026-10-19T11:06:24Z",
+    "body": "Fix round 1: sent to Harness (Greptile findings: parent-path and character-class bypasses, globRegex SyntaxError; plus the requested changes: brace spellings, docs gaps, false positives)."
+  },
+  {
+    "id": 6265977442,
+    "user": {
+      "login": "gabe-bots[bot]",
+      "type": "Bot"
+    },
+    "created_at": "2026-10-19T11:18:52Z",
+    "updated_at": "2026-10-19T11:18:52Z",
+    "body": "@greptileai review"
+  },
+  {
+    "id": 6266098318,
+    "user": {
+      "login": "gabe-bots[bot]",
+      "type": "Bot"
+    },
+    "created_at": "2026-10-19T11:25:54Z",
+    "updated_at": "2026-10-19T11:25:54Z",
+    "body": "Fix round 2: sent to Harness (Greptile 0/5 on 5075dbc: ls/du copy bypass, brace-split bypass, relative rm after an option). Last automatic round; after this it goes to Gabe."
+  }
+]

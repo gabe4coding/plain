@@ -11,11 +11,15 @@
 # A consumer of the tier must read the "risk tier" check of this workflow, never a label or a check
 # a `pull_request` run posted: a PR can forge those.
 #
-# Reviewer: the only pass is a completed "Greptile Review" check from greptile-apps on the current
-# head whose conclusion is success. A pass never lowers the tier. Anything else (missing, pending,
-# neutral, failure, cancelled, timed_out, action_required, startup_failure, stale, the wrong app,
-# or an older SHA) is not a pass and raises the tier one step, stopping at T2-hard. HOLD stays HOLD.
-# `check_run` runs this job again when Greptile finishes.
+# Reviewer: a pass needs all three on the current head. A completed "Greptile Review" check from
+# greptile-apps with conclusion success. The latest issue comment from greptile-apps[bot] (type Bot)
+# whose body is a Greptile summary, whose last-reviewed commit is this head, and whose Confidence
+# Score is 4/5 or 5/5. No inline comment from that bot on this head (commit_id) badged P0 or P1.
+# A pass never lowers the tier. Anything missing, unparseable, from another author, or tied to
+# another SHA is not a pass and raises the tier one step, stopping at T2-hard. HOLD stays HOLD.
+# That includes a successful check alone. Labels are never read. `check_run` runs this job again
+# when Greptile finishes. The fetches are GET with github.token. Write stays only so this job can
+# post the advisory label and the "risk tier" check.
 name: risk
 
 on:  # yamllint disable-line rule:truthy
@@ -55,7 +59,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: write   # the risk:* label
+      issues: read           # Greptile's summary comments
+      pull-requests: write   # read inline comments; post the risk:* label
       checks: write          # read Greptile's check; write the "risk tier" check run
     steps:
       - name: Resolve the pull request
@@ -170,6 +175,37 @@ jobs:
           json.dump(rows, open(sys.argv[2], "w"))
           PY
 
+      - name: Greptile comments on the pull request
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
+            --jq '.[] | {user:{login:.user.login,type:.user.type},body,created_at,updated_at}' \
+            > "$RUNNER_TEMP/comments.jsonl"
+          gh api --paginate "repos/$REPO/pulls/$PR/comments?per_page=100" \
+            --jq '.[] | {user:{login:.user.login,type:.user.type},body,commit_id,created_at,updated_at}' \
+            > "$RUNNER_TEMP/review-comments.jsonl"
+          python3 -I - "$RUNNER_TEMP/comments.jsonl" "$RUNNER_TEMP/comments.json" \
+            "$RUNNER_TEMP/review-comments.jsonl" "$RUNNER_TEMP/review-comments.json" <<'PY'
+          import json, sys
+          def fold(src, dest):
+              text = open(src, encoding="utf-8").read()
+              dec, rows, idx = json.JSONDecoder(), [], 0
+              while idx < len(text):
+                  while idx < len(text) and text[idx].isspace():
+                      idx += 1
+                  if idx >= len(text):
+                      break
+                  row, idx = dec.raw_decode(text, idx)
+                  rows.append(row)
+              json.dump(rows, open(dest, "w"))
+          fold(sys.argv[1], sys.argv[2])
+          fold(sys.argv[3], sys.argv[4])
+          PY
+
       - name: Classify
         id: tier
         if: steps.pr.outputs.skip != 'true'
@@ -181,6 +217,8 @@ jobs:
           uv run --no-config --no-project --python 3.12 --with pyyaml==6.0.2 -- python -I .github/scripts/risk_tier.py \
             --rules .github/risk.yml --base "$BASE_SHA" --head "$HEAD_SHA" \
             --pr-json "$RUNNER_TEMP/coord.json" --checks-file "$RUNNER_TEMP/checks.json" \
+            --comments-file "$RUNNER_TEMP/comments.json" \
+            --review-comments-file "$RUNNER_TEMP/review-comments.json" \
             --automerge="$AUTOMERGE" --note="Rules and classifier from the base branch ($BASE_SHA)." \
             --json "$RUNNER_TEMP/risk.json" --markdown "$RUNNER_TEMP/risk.md"
           python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("tier="+d["tier"]); print("label="+d["label"])' \

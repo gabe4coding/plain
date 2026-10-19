@@ -10,11 +10,12 @@ so a pull request cannot loosen its own rules.
         [--json OUT.json] [--markdown OUT.md]
 
 The core (`classify`) is a pure function of the changed files, the PR text, the base and
-head contents of a few manifests, and the Greptile check runs the caller fetched. `collect`
-reads the files from git. No network, no LLM. The reviewer signal is only those check runs:
-labels and comments are not inputs. One completed "Greptile Review" success from
-greptile-apps on the current head is a pass, and a pass never lowers the tier. Anything else
-raises the tier one step, stopping at T2-hard. HOLD stays HOLD.
+head contents of a few manifests, and the Greptile evidence the caller fetched. `collect`
+reads the files from git. No network, no LLM. Labels are not an input. A pass needs all
+three on the current head: a completed "Greptile Review" success from greptile-apps, the
+latest `greptile-apps[bot]` summary of that SHA at confidence 4/5 or 5/5, and no P0 or P1
+inline comment from that bot on that SHA. A pass never lowers the tier. Anything else raises
+the tier one step, stopping at T2-hard. HOLD stays HOLD.
 """
 
 from __future__ import annotations
@@ -76,8 +77,12 @@ class Change:
     automerge: str = ""
     # set when git's file list and its diff do not agree: the files cannot be trusted
     problem: str = ""
-    # None: no reviewer signal (a backtest). A list, even empty: judge the Greptile check runs.
+    # None: no reviewer signal (a backtest). A list, even empty: judge the Greptile evidence.
     checks: Optional[List[dict]] = None
+    # Issue comments and inline review comments. Read only when checks is a list.
+    # None or empty means the summary is missing, which is not a pass.
+    comments: Optional[List[dict]] = None
+    review_comments: Optional[List[dict]] = None
     head_sha: str = ""
 
 
@@ -289,6 +294,13 @@ def workflow_reason(f: FileChange) -> Reason:
 
 REVIEWER_CHECK = "Greptile Review"
 REVIEWER_APP = "greptile-apps"
+REVIEWER_LOGIN = "greptile-apps[bot]"
+# Visible score line. The HTML marker is not the score: a summary can list findings and still pass.
+CONFIDENCE = re.compile(r"Confidence Score:\s*(\d+)\s*/\s*5")
+# The footer link, not a /commit/ that happens to appear earlier in the body.
+REVIEWED_COMMIT = re.compile(r"Last reviewed commit:\s*.*?/commit/([0-9a-fA-F]{40})", re.S)
+# Inline badge only. A P2 does not match, and the same image inside a summary does not count.
+BLOCKING_BADGE = re.compile(r"""alt\s*=\s*["']P[01]["']""")
 
 
 def _check_slug(check: dict) -> str:
@@ -306,14 +318,25 @@ def _reviewer_on_head(check: dict, head_sha: str) -> bool:
     if not head_sha or not isinstance(check, dict):
         return False
     return (check.get("name") == REVIEWER_CHECK and _check_slug(check) == REVIEWER_APP
-            and check.get("head_sha") == head_sha)
+            and str(check.get("head_sha") or "").lower() == head_sha.lower())
 
 
-def reviewer_passed(checks, head_sha: str) -> bool:
-    """True only for a completed Greptile Review check from greptile-apps on head_sha whose conclusion is success.
+def _greptile_bot(comment: dict) -> bool:
+    if not isinstance(comment, dict):
+        return False
+    user = comment.get("user")
+    if not isinstance(user, dict):
+        return False
+    return user.get("login") == REVIEWER_LOGIN and user.get("type") == "Bot"
 
-    Labels and comments are not read. Missing, pending, neutral, a failure, the wrong app, and an
-    older SHA are not a pass."""
+
+def _comment_stamp(comment: dict) -> str:
+    """Latest means the newest updated_at, then created_at. ISO-8601 sorts as text."""
+    return f"{comment.get('updated_at') or comment.get('created_at') or ''}"
+
+
+def _check_succeeded(checks, head_sha: str) -> bool:
+    """Completed Greptile Review from greptile-apps on head_sha with conclusion success."""
     if not head_sha:
         return False
     for check in checks or []:
@@ -322,6 +345,56 @@ def reviewer_passed(checks, head_sha: str) -> bool:
         if check.get("status") == "completed" and check.get("conclusion") == "success":
             return True
     return False
+
+
+def _latest_summary(comments) -> Optional[dict]:
+    """The newest issue comment from greptile-apps[bot] that is a Greptile summary."""
+    found = [c for c in comments or []
+             if _greptile_bot(c) and "<!-- greptile_summary -->" in str(c.get("body") or "")]
+    if not found:
+        return None
+    return max(found, key=_comment_stamp)
+
+
+def _summary_ok(summary: Optional[dict], head_sha: str) -> bool:
+    """The summary last reviewed this SHA and its confidence is 4/5 or 5/5."""
+    if summary is None or not head_sha:
+        return False
+    body = str(summary.get("body") or "")
+    score = CONFIDENCE.search(body)
+    reviewed = REVIEWED_COMMIT.search(body)
+    if not score or not reviewed:
+        return False
+    return 4 <= int(score.group(1)) <= 5 and reviewed.group(1).lower() == head_sha.lower()
+
+
+def _blocking_inline(review_comments, head_sha: str) -> bool:
+    """A P0 or P1 badge from greptile-apps[bot] whose commit_id is this SHA."""
+    if not head_sha:
+        return False
+    want = head_sha.lower()
+    for comment in review_comments or []:
+        if not _greptile_bot(comment):
+            continue
+        if str(comment.get("commit_id") or "").lower() != want:
+            continue
+        if BLOCKING_BADGE.search(str(comment.get("body") or "")):
+            return True
+    return False
+
+
+def reviewer_passed(checks, head_sha: str, comments=None, review_comments=None) -> bool:
+    """True only when all three hold on head_sha.
+
+    A completed Greptile Review success from greptile-apps, the latest greptile-apps[bot]
+    summary of that SHA at confidence 4/5 or 5/5, and no P0 or P1 inline comment from that
+    bot on that SHA. Missing, pending, neutral, a failure, the wrong app, an older SHA, a
+    missing or unparseable summary, another author, and a blocking inline comment are not a
+    pass. Labels are not read. A summary that merely lists P0 or P1 badges is not an inline
+    comment."""
+    return (_check_succeeded(checks, head_sha)
+            and _summary_ok(_latest_summary(comments), head_sha)
+            and not _blocking_inline(review_comments, head_sha))
 
 
 def _raised(tier: str) -> str:
@@ -443,9 +516,10 @@ def classify(change: Change, rules: dict) -> dict:
     base = max((r.tier for r in reasons), key=TIERS.index)
     reviewer = "not-checked"
     if change.checks is not None:
-        if reviewer_passed(change.checks, change.head_sha):
+        if reviewer_passed(change.checks, change.head_sha, change.comments, change.review_comments):
             reviewer = "passed"
-            reasons.append(Reason(base, "reviewer-passed", "Greptile Review passed on the current head; the tier is not lowered"))
+            reasons.append(Reason(base, "reviewer-passed",
+                                  "Greptile passed on the current head (check, summary, no P0 or P1); the tier is not lowered"))
         else:
             reviewer = "not-passed"
             up = _raised(base)
@@ -577,22 +651,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--note", default="", help="extra line for the markdown summary")
     ap.add_argument("--pr-json", help="JSON file with title, branch, and body; overrides those flags")
     ap.add_argument("--checks-file", help="JSON list of check runs. Omit to leave the reviewer out of the tier")
+    ap.add_argument("--comments-file", help="JSON list of issue comments. With --checks-file, omit means no summary")
+    ap.add_argument("--review-comments-file", help="JSON list of inline review comments. With --checks-file, omit means none")
     a = ap.parse_args(argv)
     title, branch = a.title, a.branch
     body = open(a.body_file, encoding="utf-8", errors="replace").read() if a.body_file else ""
     if a.pr_json:
         meta = json.load(open(a.pr_json, encoding="utf-8"))
         title, branch, body = meta.get("title") or "", meta.get("branch") or "", meta.get("body") or ""
+    def load_list(path: Optional[str], what: str):
+        if not path:
+            return []
+        rows = json.load(open(path, encoding="utf-8"))
+        if not isinstance(rows, list):
+            print(f"{what} file must be a JSON list", file=sys.stderr)
+            return None
+        return rows
+
     checks = None
+    comments = None
+    review_comments = None
     if a.checks_file:
-        checks = json.load(open(a.checks_file, encoding="utf-8"))
-        if not isinstance(checks, list):
-            print("checks file must be a JSON list", file=sys.stderr)
+        checks = load_list(a.checks_file, "checks")
+        comments = load_list(a.comments_file, "comments")
+        review_comments = load_list(a.review_comments_file, "review comments")
+        if checks is None or comments is None or review_comments is None:
             return 2
     files, merge_base, problem = collect(a.base, a.head)
     change = Change(files=files, title=title, branch=branch, body=body,
                     read=git_reader(merge_base, a.head), automerge=a.automerge, problem=problem,
-                    checks=checks, head_sha=a.head)
+                    checks=checks, comments=comments, review_comments=review_comments, head_sha=a.head)
     result = classify(change, load_rules(a.rules))
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:

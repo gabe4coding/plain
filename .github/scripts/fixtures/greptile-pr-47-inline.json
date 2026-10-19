@@ -1,0 +1,68 @@
+[
+  {
+    "id": 4312996048,
+    "user": {
+      "login": "greptile-apps[bot]",
+      "type": "Bot"
+    },
+    "commit_id": "90f1fb98089860c577e53dfe3588868b852a74a3",
+    "path": "hooks/paths.ts",
+    "created_at": "2026-10-19T10:55:57Z",
+    "body": "<a href=\"#\"><img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\"></a> <a href=\"#\"><img alt=\"security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\"></a> **Parent paths bypass approval**\n\nIf `hints/a/b` exists, `D=a/b; printf x > ~/"
+  },
+  {
+    "id": 4312996059,
+    "user": {
+      "login": "greptile-apps[bot]",
+      "type": "Bot"
+    },
+    "commit_id": "90f1fb98089860c577e53dfe3588868b852a74a3",
+    "path": "hooks/paths.ts",
+    "created_at": "2026-10-19T10:55:57Z",
+    "body": "<a href=\"#\"><img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\"></a> <a href=\"#\"><img alt=\"security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\"></a> **Character classes bypass approval**\n\n`globRegex` does not read Bash characte"
+  },
+  {
+    "id": 4312996067,
+    "user": {
+      "login": "greptile-apps[bot]",
+      "type": "Bot"
+    },
+    "commit_id": "90f1fb98089860c577e53dfe3588868b852a74a3",
+    "path": "hooks/paths.ts",
+    "created_at": "2026-10-19T10:55:58Z",
+    "body": "<a href=\"#\"><img alt=\"P2\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p2.svg?v=9\" align=\"top\"></a> **Shell patterns crash the check**\n\n`globRegex` can throw on command text instead of returning a result. For example, `ls ~/.claude/code-mode/[z-a]` builds an invalid JavaScript character range and throws "
+  },
+  {
+    "id": 4313241737,
+    "user": {
+      "login": "greptile-apps[bot]",
+      "type": "Bot"
+    },
+    "commit_id": "5075dbc6918a73c32ed780236d3812bd007318f7",
+    "path": "hooks/paths.ts",
+    "created_at": "2026-10-19T11:25:08Z",
+    "body": "<a href=\"#\"><img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\"></a> <a href=\"#\"><img alt=\"security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\"></a> **Copy commands skip approval**\n\n`verbBefore` treats an argument named `ls` or"
+  },
+  {
+    "id": 4313241748,
+    "user": {
+      "login": "greptile-apps[bot]",
+      "type": "Bot"
+    },
+    "commit_id": "5075dbc6918a73c32ed780236d3812bd007318f7",
+    "path": "hooks/paths.ts",
+    "created_at": "2026-10-19T11:25:08Z",
+    "body": "<a href=\"#\"><img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\"></a> <a href=\"#\"><img alt=\"security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\"></a> **Brace spellings skip approval**\n\nSplitting on braces breaks protected names "
+  },
+  {
+    "id": 4313241756,
+    "user": {
+      "login": "greptile-apps[bot]",
+      "type": "Bot"
+    },
+    "commit_id": "5075dbc6918a73c32ed780236d3812bd007318f7",
+    "path": "hooks/paths.ts",
+    "created_at": "2026-10-19T11:25:08Z",
+    "body": "<a href=\"#\"><img alt=\"P1\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p1.svg?v=9\" align=\"top\"></a> <a href=\"#\"><img alt=\"security\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/Security.svg?v=2\" align=\"top\"></a> **Relative deletions skip approval**\n\nThe new check skips a relative path when"
+  }
+]
