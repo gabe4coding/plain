@@ -24,7 +24,8 @@ const { values } = parseArgs({ options: { url: { type: 'string', multiple: true 
 const KINDS = ['click', 'fill', 'select', 'check'];
 const SITE_PAGES = ['/spatial-controls', '/spatial-reference', '/spatial-values', '/spatial-names', '/spatial', '/field-state',
   '/candidate-editor', '/candidate-dialog', '/consent', '/overlay', '/cookie-bar', '/login', '/secure', '/forms', '/dialogs',
-  '/frames', '/files', '/drag', '/boxes', '/waits', '/where', '/generated-ids'];
+  '/frames', '/files', '/drag', '/boxes', '/waits', '/where', '/generated-ids',
+  '/editor-placeholder'];
 
 // ---- the orders page and its changes ---------------------------------------------------------------------------
 const ORDERS = [

@@ -102,6 +102,12 @@ status();`),
   button.id = 'base-ui-_r_' + (36 + Math.floor(Math.random() * 1260)).toString(36) + '_';
   button.onclick = () => document.querySelector('[role=status]').textContent = 'Menu open for: ' + button.previousElementSibling.textContent;
 }`),
+  // A CodeMirror 6 editor with no label: its placeholder takes no clicks, the line around it gets them.
+  '/editor-placeholder': () => page('New memo', `<h1>New memo</h1>
+<div class="cm-editor" style="border:1px solid;width:400px"><div class="cm-content" contenteditable="true" role="textbox"
+aria-multiline="true" style="padding:8px"><div class="cm-line"><span class="cm-placeholder"
+contenteditable="false" style="pointer-events:none;color:#888">Any thoughts...</span><br></div></div></div>
+<p role="status"></p>`, `document.querySelector('.cm-content').onfocus = () => document.querySelector('[role=status]').textContent = 'Writing a memo';`),
   '/candidate-dialog': () => page('Store dialog', `<h1>Store</h1><main inert>
 ${Array.from({ length: 180 }, (_, i) => `<button>Browse product ${i}</button>`).join('')}
 <button onclick="document.querySelector('#result').textContent='Background selected'">Continue</button>
