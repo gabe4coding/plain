@@ -71,6 +71,8 @@ const MAX_ATTR = 300;
  * this, it gives up (the step still runs; the pick is not recorded).
  */
 const SCOPE_SEARCH_MS = 1500;
+/** How long a text match inside the picked element may take to show that it takes a click. */
+const INSIDE_PROBE_MS = 500;
 
 type Root = Page | Frame | Locator | FrameLocator;
 
@@ -221,12 +223,17 @@ async function scopeParts(frame: Frame, facts: ElementFacts, nonce: string): Pro
   return out;
 }
 
-/** Exactly one match, and it is the element tagged `jevId` (a text match may be inside it). */
+/**
+ * Exactly one match, and it is the element tagged `jevId`. A text match may be inside it, but a replay acts on that
+ * inner element, so it must take a click itself: an editor's placeholder does not, the line around it does.
+ */
 async function pointsAt(locator: Locator, jevId: string, inside: boolean): Promise<boolean> {
   try {
     if (await locator.count() !== 1) return false;
-    return await locator.evaluate((el, { id, inside }) =>
-      el.getAttribute('data-jev-id') === id || (inside && el.closest(`[data-jev-id="${id}"]`) !== null), { id: jevId, inside });
+    const at = await locator.evaluate((el, { id, inside }) => el.getAttribute('data-jev-id') === id ? 'self'
+      : inside && el.closest(`[data-jev-id="${id}"]`) !== null ? 'inside' : null, { id: jevId, inside });
+    if (at === 'inside') await locator.click({ trial: true, timeout: INSIDE_PROBE_MS });
+    return at !== null;
   } catch {
     return false;
   }
