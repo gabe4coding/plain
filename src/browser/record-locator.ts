@@ -54,11 +54,13 @@ export type RecordResult =
 const TESTID_ATTRS = ['data-testid', 'data-test-id', 'data-test', 'data-qa', 'data-cy'];
 /** `value` only on elements that do not take typing: a field's value is what a step changes. */
 const STABLE_ATTRS = ['name', 'href', 'title', 'alt', 'value'];
+/** Ids from React `useId` (`:r1:`, `«r1»`, `_r_1_`) and the component kits on it: new on every load. */
+const USE_ID = /:r[0-9a-z]*:|«r[0-9a-z]*»|_r_[0-9a-z]*_|^(?:base-ui|radix|headlessui)-/i;
 /**
- * Ids that frameworks generate per render or load: React `useId` (`:r1:`, `«r1»`, `_r_1_`), the component kits
- * that build on it (`base-ui-`, `radix-`, `headlessui-`), Ember, long numbers or hex runs.
+ * Ids not worth a locator: `useId` ones, Ember's, and long numbers or hex runs, which are often generated too. A
+ * fixed id of that shape loses only the id strategy; another one still finds its element.
  */
-const GENERATED_ID = /^:|«r|_r_|^(?:base-ui|radix|headlessui)-|^ember\d|^react|\d{3,}|[0-9a-f]{8,}/i;
+const GENERATED_ID = new RegExp(`${USE_ID.source}|^:|^ember\\d|^react|\\d{3,}|[0-9a-f]{8,}`, 'i');
 const MAX_SCOPE_TEXTS = 10;
 const MAX_SCOPES = 3;
 const MAX_TEXT = 80;
@@ -302,7 +304,10 @@ async function sameLinks(locator: Locator, jevId: string, href: string): Promise
   }
 }
 
-/** Attributes that hold an element id: a generated one changes the markup on every load. */
+/**
+ * Attributes that hold an element id: a `useId` one changes the markup on every load. A fixed one (`panel-123`)
+ * stays, so it still tells two icon buttons apart.
+ */
 const ID_ATTRS = ['id', 'for', 'aria-controls', 'aria-labelledby', 'aria-describedby', 'aria-owns', 'aria-activedescendant'];
 
 /**
@@ -321,7 +326,7 @@ export async function shapeOf(locator: Locator, parameters: RunValues = []): Pro
       }
     }
     return copy.outerHTML;
-  }, { idAttrs: ID_ATTRS, generated: GENERATED_ID.source });
+  }, { idAttrs: ID_ATTRS, generated: USE_ID.source });
   return createHash('sha256').update(parameterize(markup, parameters)).digest('hex');
 }
 

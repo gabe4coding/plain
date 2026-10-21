@@ -184,3 +184,18 @@ test('a position-based locator keeps the markup hash: two icon buttons that swap
   await page.setContent(icons('M1', 'M0'));
   assert.notEqual(await shapeOf(toLocator(page, recorded.locator.parts)), recorded.locator.shape);
 });
+
+test('a fixed reference stays in the position hash: two icon buttons that differ only in aria-controls and swap places no longer match', async () => {
+  const icons = (first: string, second: string) => `<article><h3>Moka pot</h3><button aria-controls="${first}"><svg><path d="M0"/></svg></button>` +
+    `<button aria-controls="${second}"><svg><path d="M0"/></svg></button></article>`;
+  await page.setContent(icons('panel-123', 'panel-456'));
+  const found = await candidates(page, 'click', 254);
+  const controls = await Promise.all(found.map((c) => page.locator(`[data-jev-id="${c.id}"]`).getAttribute('aria-controls')));
+  const recorded = await recordLocator(page, found[controls.indexOf('panel-456')]);
+  assert.ok(recorded.ok);
+  assert.deepEqual(recorded.locator.parts.at(-1), { by: 'nth', selector: 'button', index: 1 });
+  await page.setContent(icons('panel-456', 'panel-123'));
+  const locator = toLocator(page, recorded.locator.parts);
+  assert.equal(await locator.getAttribute('aria-controls'), 'panel-123');
+  assert.notEqual(await shapeOf(locator), recorded.locator.shape);
+});
