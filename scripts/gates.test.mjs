@@ -20,7 +20,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SELF = 'scripts/gates.test.mjs';
 
 const FLOORS = {
-  'e2e specs (e2e/*.yaml)': 37,
+  'e2e specs (e2e/*.yaml)': 38,
   'expect-fail e2e specs': 15,
   'claim cases (scripts/claim-cases.json)': 233,
   'claim cases that expect fail': 135,

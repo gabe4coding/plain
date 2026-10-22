@@ -64,6 +64,15 @@ test('an id that a framework generates per load is never recorded; a hand-writte
   assert.deepEqual(stable.locator.parts, [{ by: 'id', value: 'draft-menu' }]);
 });
 
+test('a placeholder inside an editor takes no click, so the editor is recorded, not its text', async () => {
+  await page.setContent(`<div contenteditable="true" role="textbox" data-key="editor"><div><span contenteditable="false"
+    style="pointer-events:none">Any thoughts...</span><br></div></div>`);
+  const recorded = await record('click', 'div[role=textbox] "Any thoughts..."');
+  assert.ok(recorded.ok, recorded.ok ? '' : recorded.reason);
+  assert.deepEqual(recorded.locator.parts, [{ by: 'css', selector: 'div[role="textbox"]' }]);
+  assert.equal(await keyAt(recorded.locator), 'editor');
+});
+
 test('a repeated link is scoped by its row, and the scope survives a new row above it', async () => {
   const row = (id: string, key: string) => `<tr><td>${id}</td><td>Paid</td><td><a href="#" data-key="${key}">View</a></td></tr>`;
   await page.setContent(`<table>${row('#1041', 'a')}${row('#1042', 'b')}</table>`);
