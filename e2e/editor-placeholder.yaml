@@ -1,0 +1,8 @@
+name: replay a click on an editor placeholder that takes no clicks
+url: ${env.site}
+env:
+  site: $PLAIN_E2E_SITE
+steps:
+  - goto: /editor-placeholder
+  - click: the "Any thoughts..." placeholder
+  - expect: 'the status shows "Writing a memo"'
